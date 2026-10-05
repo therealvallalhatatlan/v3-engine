@@ -4,6 +4,7 @@ import LoadingScreen from '../../components/LoadingScreen';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createSupabaseBrowserClient } from '../../../lib/supabase/client';
 
 type Account = {
   authenticated: boolean;
@@ -22,6 +23,10 @@ export default function CreateCharacterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const MAX_REFERENCE_IMAGES = 5;
+  const MAX_FILE_BYTES = 8 * 1024 * 1024;
+  const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
   useEffect(() => {
     fetch('/api/me')
       .then((res) => res.json())
@@ -33,7 +38,7 @@ export default function CreateCharacterPage() {
   const isAdmin = account?.plan === 'admin';
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) setImages(Array.from(e.target.files).slice(0, 5));
+    if (e.target.files) setImages(Array.from(e.target.files).slice(0, MAX_REFERENCE_IMAGES));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,27 +46,56 @@ export default function CreateCharacterPage() {
     setLoading(true);
     setError('');
 
+    const uploadedPaths: string[] = [];
+    const supabase = createSupabaseBrowserClient();
+    const userId = account?.user?.id;
+
     try {
-      const imageUrls = await Promise.all(
-        images.map(
-          (file) =>
-            new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(file);
-            })
-        )
-      );
+      if (!userId) throw new Error('Nem sikerült azonosítani a felhasználót.');
+      if (!images.length) throw new Error('Legalább egy referenciaképet válassz.');
+      if (images.length > MAX_REFERENCE_IMAGES) {
+        throw new Error(`Legfeljebb ${MAX_REFERENCE_IMAGES} referencia-kép tölthető fel.`);
+      }
+
+      const characterId = crypto.randomUUID();
+      const referencePrefix = `${userId}/characters/${characterId}/references`;
+
+      for (let index = 0; index < images.length; index += 1) {
+        const file = images[index];
+
+        if (!ALLOWED_TYPES.has(file.type)) {
+          throw new Error('Csak JPG, PNG vagy WebP kép tölthető fel.');
+        }
+        if (file.size > MAX_FILE_BYTES) {
+          throw new Error(`Egy referencia-kép legfeljebb 8 MB lehet: ${file.name}`);
+        }
+
+        const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png';
+        const storagePath = `${referencePrefix}/${index + 1}-reference.${extension}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('v3-media')
+          .upload(storagePath, file, {
+            contentType: file.type,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error(`A referencia-kép feltöltése sikertelen: ${uploadError.message}`);
+        }
+
+        uploadedPaths.push(storagePath);
+      }
 
       const res = await fetch('/api/characters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: characterId,
           name,
           description,
           traits: traits.split(',').map((t) => t.trim()).filter(Boolean),
-          imageUrls,
+          imagePaths: uploadedPaths,
         }),
       });
 
@@ -70,6 +104,13 @@ export default function CreateCharacterPage() {
 
       router.push('/');
     } catch (e: any) {
+      if (uploadedPaths.length) {
+        try {
+          await supabase.storage.from('v3-media').remove(uploadedPaths);
+        } catch {
+          // Best-effort cleanup.
+        }
+      }
       setError(e.message || 'Hiba történt a karakter létrehozásakor.');
     } finally {
       setLoading(false);

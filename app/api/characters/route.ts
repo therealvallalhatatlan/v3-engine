@@ -57,20 +57,33 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await req.json();
-  const { name, description, traits, imageUrls } = data;
-  const id = uuidv4();
+  const { name, description, traits, imageUrls, imagePaths } = data;
+  const id = String(data?.id || uuidv4()).trim();
+  const userReferencePrefix = `${user.id}/characters/${id}/references/`;
+
+  const uploadedReferencePaths = Array.isArray(imagePaths)
+    ? imagePaths.filter((value: unknown): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean).slice(0, 5)
+    : [];
+
+  if (uploadedReferencePaths.some((storagePath) => !storagePath.startsWith(userReferencePrefix))) {
+    return NextResponse.json({ error: 'Invalid reference image path.' }, { status: 400 });
+  }
 
   const character: Character = {
     id,
     name: String(name || '').trim().slice(0, 120),
     description: String(description || '').trim().slice(0, 4000),
     traits: Array.isArray(traits) ? traits.map((item) => String(item).trim()).filter(Boolean).slice(0, 30) : [],
-    imagePaths: Array.isArray(imageUrls) ? imageUrls : [],
+    imagePaths: uploadedReferencePaths.length ? uploadedReferencePaths : (Array.isArray(imageUrls) ? imageUrls : []),
     createdAt: Date.now(),
   };
 
   if (!character.name || !character.description || character.imagePaths.length === 0) {
     return NextResponse.json({ error: 'Name, description and at least one reference image are required.' }, { status: 400 });
+  }
+
+  if (character.imagePaths.length > 5) {
+    return NextResponse.json({ error: 'Maximum 5 reference images allowed.' }, { status: 400 });
   }
 
   const { error } = await supabase.from('characters').insert({
@@ -90,10 +103,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const referencePaths: string[] = [];
-    for (let index = 0; index < character.imagePaths.length; index += 1) {
-      const storagePath = `${user.id}/characters/${id}/references/${index + 1}-reference.png`;
-      await uploadDataUrl(storagePath, character.imagePaths[index]);
-      referencePaths.push(storagePath);
+
+    if (uploadedReferencePaths.length) {
+      referencePaths.push(...uploadedReferencePaths);
+    } else {
+      for (let index = 0; index < character.imagePaths.length; index += 1) {
+        const storagePath = `${user.id}/characters/${id}/references/${index + 1}-reference.png`;
+        await uploadDataUrl(storagePath, character.imagePaths[index]);
+        referencePaths.push(storagePath);
+      }
     }
 
     const { error: imagesError } = await supabase.from('character_images').insert(
@@ -108,6 +126,13 @@ export async function POST(req: NextRequest) {
   } catch (mediaError: any) {
     await supabase.from('characters').delete().eq('id', id).eq('owner_id', user.id);
     if (slotReserved) await supabase.rpc('refund_character_slot', { p_user_id: user.id });
+    try {
+      if (uploadedReferencePaths.length) {
+        await supabase.storage.from('v3-media').remove(uploadedReferencePaths);
+      }
+    } catch {
+      // Best-effort cleanup of direct browser uploads.
+    }
     return NextResponse.json({ error: mediaError?.message || 'Failed to store reference images' }, { status: 500 });
   }
 
