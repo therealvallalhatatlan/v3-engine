@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from '../../../lib/supabase/client';
 
 type Account = {
   authenticated: boolean;
+  user?: { id: string; email?: string };
   plan?: 'free' | 'paid' | 'admin';
   generationCredits?: number;
   characterSlots?: number;
