@@ -459,23 +459,84 @@ export default function CharacterDetailPage() {
 
     setReferenceUploading(true);
     setReferenceError('');
+    const uploadedPaths: string[] = [];
+
+    const readJsonResponse = async (response: Response) => {
+      const text = await response.text();
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(text || 'A szerver nem érvényes JSON választ adott.');
+      }
+    };
+
+    const cleanupUploads = async () => {
+      if (!uploadedPaths.length) return;
+      try {
+        await fetch(`/api/characters/${primaryCharacterId}/images`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'cleanup', paths: uploadedPaths }),
+        });
+      } catch {
+        // Best-effort cleanup.
+      }
+    };
+
     try {
-      const imageUrls = await Promise.all(files.map((file) => new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      })));
+      for (const file of files) {
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+          throw new Error('Csak JPG, PNG vagy WebP kép tölthető fel.');
+        }
+        if (file.size > 8 * 1024 * 1024) {
+          throw new Error(`Egy referencia-kép legfeljebb 8 MB lehet: ${file.name}`);
+        }
+      }
+
+      const prepareResponse = await fetch(`/api/characters/${primaryCharacterId}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'prepare',
+          files: files.map((file) => ({ contentType: file.type, size: file.size })),
+        }),
+      });
+      const prepareData = await readJsonResponse(prepareResponse);
+      if (!prepareResponse.ok) {
+        throw new Error(prepareData?.error || 'A referencia-képek feltöltésének előkészítése sikertelen.');
+      }
+
+      const uploads = Array.isArray(prepareData?.uploads) ? prepareData.uploads : [];
+      if (uploads.length !== files.length) {
+        throw new Error('A szerver nem készített elég feltöltési jogosultságot.');
+      }
+
+      const supabase = createSupabaseBrowserClient();
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const upload = uploads[index];
+        const { error: uploadError } = await supabase.storage
+          .from('v3-media')
+          .uploadToSignedUrl(upload.path, upload.token, file, {
+            contentType: file.type,
+            cacheControl: '3600',
+          });
+        if (uploadError) {
+          throw new Error(`A referencia-kép feltöltése sikertelen: ${uploadError.message}`);
+        }
+        uploadedPaths.push(upload.path);
+      }
 
       const response = await fetch(`/api/characters/${primaryCharacterId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrls }),
+        body: JSON.stringify({ mode: 'complete', uploadedPaths }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!response.ok) throw new Error(data?.error || 'A feltöltés sikertelen.');
 
       await loadReferenceImages();
+      uploadedPaths.length = 0;
     } catch (error: any) {
       setReferenceError(error?.message || 'A feltöltés sikertelen.');
     } finally {

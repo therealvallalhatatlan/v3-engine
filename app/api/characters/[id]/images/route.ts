@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '../../../../../lib/supabase/server';
 import { createSupabaseAdminClient } from '../../../../../lib/supabase/admin';
-import { dataUrlToBuffer } from '../../../../../lib/supabase/media';
 import { v4 as uuidv4 } from 'uuid';
 
 const MAX_REFERENCE_IMAGES = 6;
-const MAX_DATA_URL_LENGTH = 15 * 1024 * 1024;
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 async function getAdminAndCharacter(characterId: string) {
   const user = await getCurrentUser();
@@ -98,30 +98,80 @@ export async function POST(
   if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
 
   const body = await req.json().catch(() => ({}));
-  const imageUrls = Array.isArray(body?.imageUrls)
-    ? body.imageUrls.filter((value: unknown): value is string => typeof value === 'string')
+  const mode = String(body?.mode || 'complete').trim();
+
+  if (mode === 'prepare') {
+    const files = Array.isArray(body?.files) ? body.files : [];
+    if (!files.length) {
+      return NextResponse.json({ error: 'At least one reference image is required.' }, { status: 400 });
+    }
+    if (files.length + (existing?.length || 0) > MAX_REFERENCE_IMAGES) {
+      return NextResponse.json({ error: `Maximum ${MAX_REFERENCE_IMAGES} reference images allowed.` }, { status: 400 });
+    }
+
+    try {
+      const uploads = [];
+      for (const file of files) {
+        const contentType = String(file?.contentType || '').toLowerCase();
+        const size = Number(file?.size || 0);
+        if (!ALLOWED_TYPES.has(contentType)) {
+          throw new Error('Csak JPG, PNG vagy WebP kép tölthető fel.');
+        }
+        if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_BYTES) {
+          throw new Error('Egy referencia-kép legfeljebb 8 MB lehet.');
+        }
+
+        const extension = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png';
+        const path = `system/characters/${characterId}/references/${Date.now()}-${uuidv4()}.${extension}`;
+        const { data, error } = await supabase.storage.from('v3-media').createSignedUploadUrl(path);
+        if (error || !data?.token) {
+          throw new Error(error?.message || 'Nem sikerült feltöltési jogosultságot létrehozni.');
+        }
+
+        uploads.push({ path, token: data.token, contentType });
+      }
+
+      return NextResponse.json({ ok: true, uploads });
+    } catch (error: any) {
+      return NextResponse.json({ error: error?.message || 'Nem sikerült a referencia-képek feltöltését előkészíteni.' }, { status: 500 });
+    }
+  }
+
+  if (mode === 'cleanup') {
+    const paths = Array.isArray(body?.paths)
+      ? body.paths.filter((value: unknown): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean)
+      : [];
+
+    const prefix = `system/characters/${characterId}/references/`;
+    const ownPaths = paths.filter((value) => value.startsWith(prefix));
+    if (ownPaths.length) {
+      const { error: cleanupError } = await supabase.storage.from('v3-media').remove(ownPaths);
+      if (cleanupError) {
+        return NextResponse.json({ error: cleanupError.message }, { status: 500 });
+      }
+    }
+    return NextResponse.json({ ok: true, removed: ownPaths.length });
+  }
+
+  const uploadedPaths = Array.isArray(body?.uploadedPaths)
+    ? body.uploadedPaths.filter((value: unknown): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean)
     : [];
 
-  if (!imageUrls.length) return NextResponse.json({ error: 'At least one reference image is required.' }, { status: 400 });
-  if (imageUrls.length + (existing?.length || 0) > MAX_REFERENCE_IMAGES) {
+  if (!uploadedPaths.length) {
+    return NextResponse.json({ error: 'At least one uploaded reference image is required.' }, { status: 400 });
+  }
+  if (uploadedPaths.length + (existing?.length || 0) > MAX_REFERENCE_IMAGES) {
     return NextResponse.json({ error: `Maximum ${MAX_REFERENCE_IMAGES} reference images allowed.` }, { status: 400 });
   }
 
+  const prefix = `system/characters/${characterId}/references/`;
+  if (uploadedPaths.some((path) => !path.startsWith(prefix))) {
+    return NextResponse.json({ error: 'Invalid reference image path.' }, { status: 400 });
+  }
+
   const inserted: Array<{ id: string; storage_path: string }> = [];
-
   try {
-    for (const imageUrl of imageUrls) {
-      if (imageUrl.length > MAX_DATA_URL_LENGTH) throw new Error('Reference image is too large.');
-
-      const { buffer, contentType, extension } = dataUrlToBuffer(imageUrl);
-      const path = `system/characters/${characterId}/references/${Date.now()}-${uuidv4()}-${extension}`;
-
-      const { error: uploadError } = await supabase.storage.from('v3-media').upload(path, buffer, {
-        contentType,
-        upsert: false,
-      });
-      if (uploadError) throw uploadError;
-
+    for (const path of uploadedPaths) {
       const { data: row, error: insertError } = await supabase
         .from('character_images')
         .insert({
@@ -132,19 +182,15 @@ export async function POST(
         .select('id, storage_path')
         .single();
 
-      if (insertError) {
-        await supabase.storage.from('v3-media').remove([path]);
-        throw insertError;
-      }
-
+      if (insertError) throw insertError;
       inserted.push(row);
     }
   } catch (error: any) {
     if (inserted.length) {
       await supabase.from('character_images').delete().in('id', inserted.map((item) => item.id));
-      await supabase.storage.from('v3-media').remove(inserted.map((item) => item.storage_path));
     }
-    return NextResponse.json({ error: error?.message || 'Failed to upload reference images' }, { status: 500 });
+    await supabase.storage.from('v3-media').remove(uploadedPaths);
+    return NextResponse.json({ error: error?.message || 'Failed to save reference images' }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, added: inserted.length });
