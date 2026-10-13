@@ -680,6 +680,7 @@ export default function CharacterDetailPage() {
     setEnvironmentReferenceUploading(true);
     setEnvironmentReferenceError('');
     const uploaded: Array<{ path: string; url: string; name: string }> = [];
+    const createdPaths: string[] = [];
     try {
       const supabase = createSupabaseBrowserClient();
       for (const file of files) {
@@ -693,6 +694,7 @@ export default function CharacterDetailPage() {
         if (!createResponse.ok) throw new Error(createData?.error || 'A referencia-kép feltöltésének előkészítése sikertelen.');
         const path = String(createData.path || '');
         const token = String(createData.token || '');
+        if (path) createdPaths.push(path);
         if (!path || !token) throw new Error('Hiányzó feltöltési token.');
 
         const { error: uploadError } = await supabase.storage
@@ -707,12 +709,12 @@ export default function CharacterDetailPage() {
       }
       setEnvironmentReferenceImages((current) => [...current, ...uploaded]);
     } catch (uploadError: any) {
-      await Promise.all(uploaded.map(async (item) => {
+      await Promise.all(createdPaths.map(async (path) => {
         try {
           await fetch('/api/generate/background-reference', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: item.path }),
+            body: JSON.stringify({ path }),
           });
         } catch {}
       }));
