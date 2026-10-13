@@ -713,9 +713,9 @@ export default function CharacterDetailPage() {
   if (!character) return <LoadingScreen />;
 
   return (
-    <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-6">
-      <div className="w-full max-w-6xl px-6 md:px-0">
-        <div className="mb-8 flex items-center justify-between gap-4">
+    <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-2 xl:mt-1">
+      <div className="w-full max-w-[1600px] px-4 xl:px-6">
+        <div className="mb-3 flex items-center justify-between gap-4">
           <h1 className="text-3xl font-bold tracking-tight">Új jelenet</h1>
 
           <div className="flex min-w-0 items-center justify-end gap-3">
@@ -743,20 +743,20 @@ export default function CharacterDetailPage() {
           </div>
         </div>
 
-        <div className="flex gap-1 mb-4 bg-zinc-950 rounded-lg border border-gray-800 p-1">
+        <div className="flex gap-1 mb-2 bg-zinc-950 rounded-lg border border-gray-800 p-1">
           {(['generate', ...(isPaid ? ['animate'] : []), 'gallery'] as Tab[]).map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`flex-1 py-2 rounded text-sm font-semibold ${activeTab === tab ? 'bg-zinc-800 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-zinc-800'}`}>{tab === 'generate' ? '✨ ' : tab === 'animate' ? '▶ ' : '🖼 '}{tab === 'generate' ? 'Generálás' : tab === 'animate' ? 'Videó' : 'Galéria'}</button>)}
         </div>
 
-        <div className="bg-zinc-950 rounded-lg">
+        <div className="bg-zinc-950 rounded-lg p-2 xl:p-3">
           {activeTab === 'generate' && (
             <>
               {!isPaid && (
-                <div className="mb-4 rounded-lg border border-gray-800 bg-zinc-950 p-4 text-xs text-zinc-500">
+                <div className="mb-2 rounded-lg border border-gray-800 bg-zinc-950 p-2 xl:p-2 text-xs text-zinc-500">
                   FREE mód · 6 ingyenes kredit · alap generátor
                 </div>
               )}
 
-              <form onSubmit={handleGenerate} className="mb-8 space-y-4">
+              <form onSubmit={handleGenerate} className="mb-2 space-y-4 xl:mb-0 xl:space-y-0 xl:grid xl:grid-cols-2 xl:items-start xl:gap-x-4 xl:gap-y-3">
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <label className="text-sm font-semibold text-gray-300">Helyszín</label>
@@ -770,19 +770,19 @@ export default function CharacterDetailPage() {
                     </select>
                   </div>
                   <textarea
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 xl:p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    rows={3}
+                    rows={2}
                     placeholder="Hol történjen a jelenet? A preset az alap környezetet adja, ezt itt pontosíthatod."
                   />
                 </div>
 
-                <div className="space-y-3 rounded-lg border border-gray-800 bg-zinc-950 p-4">
+                <div className="space-y-2 rounded-lg border border-gray-800 bg-zinc-950 p-3 xl:p-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <label className="text-sm font-semibold text-gray-300">Háttér-referencia <span className="font-normal text-gray-600">opcionális</span></label>
-                      <div className="mt-1 text-[11px] leading-5 text-gray-600">
+                      <div className="mt-1 text-[11px] leading-5 text-gray-600 xl:hidden">
                         Az AI a kép környezetét és kompozícióját veszi alapul, majd újraépíti a jelenetet a figurádhoz igazítva.
                       </div>
                     </div>
@@ -809,7 +809,7 @@ export default function CharacterDetailPage() {
                       <img
                         src={backgroundReferenceUrl}
                         alt="Háttér-referencia előnézete"
-                        className="max-h-72 w-full object-contain"
+                        className="max-h-40 xl:max-h-36 w-full object-contain"
                       />
                       <button
                         type="button"
@@ -827,7 +827,7 @@ export default function CharacterDetailPage() {
                       type="button"
                       onClick={() => backgroundReferenceInputRef.current?.click()}
                       disabled={backgroundReferenceUploading || loading}
-                      className="flex min-h-24 w-full items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/20 text-xs text-gray-600 transition hover:border-gray-600 hover:text-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex min-h-12 xl:min-h-10 w-full items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/20 text-xs text-gray-600 transition hover:border-gray-600 hover:text-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Kattints és válassz képet a gépedről
                     </button>
@@ -859,7 +859,7 @@ export default function CharacterDetailPage() {
                     </select>
                   </div>
                   <input
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={lighting}
                     onChange={(e) => setLighting(e.target.value)}
                     list="lighting-history"
@@ -874,15 +874,15 @@ export default function CharacterDetailPage() {
                 <div>
                   <label className="block mb-1 text-sm font-semibold text-gray-300">Mi történjen?</label>
                   <textarea
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={actionPrompt}
                     onChange={(e) => setActionPrompt(e.target.value)}
-                    rows={4}
+                    rows={2}
                     placeholder="Írd le, mit csináljon a karakter."
                   />
                 </div>
 
-                <div className="rounded-lg border border-gray-800 bg-zinc-950 p-4">
+                <div className="rounded-lg border border-gray-800 bg-zinc-950 p-3 xl:p-2">
                   <div className="text-sm font-semibold text-gray-300 mb-3">Szereplők</div>
 
                   <div className="flex gap-2 mb-3">
@@ -970,7 +970,7 @@ export default function CharacterDetailPage() {
                     <label className="text-sm font-semibold text-gray-300">Kamera</label>
                     <span className="text-[10px] text-gray-600">objektív · nézőpont · látószög · perspektíva</span>
                   </div>
-                  <select className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm" value={camera} onChange={(e) => setCamera(e.target.value)}>
+                  <select className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm" value={camera} onChange={(e) => setCamera(e.target.value)}>
                     {cameraOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
@@ -978,7 +978,7 @@ export default function CharacterDetailPage() {
                 <div>
                   <label className="block mb-1 text-sm font-semibold text-gray-300">Képarány</label>
                   <select
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={aspectRatio}
                     onChange={(e) => setAspectRatio(e.target.value as AspectRatio16x9)}
                   >
@@ -989,7 +989,7 @@ export default function CharacterDetailPage() {
                 <div>
                   <label className="block mb-1 text-sm font-semibold text-gray-300">Stílus</label>
                   <select
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={style}
                     onChange={(e) => setStyle(e.target.value)}
                   >
@@ -1073,7 +1073,7 @@ export default function CharacterDetailPage() {
 
                 {error && <div className="text-red-400 text-sm bg-red-950/50 border border-red-900 rounded px-3 py-2">{error}</div>}
 
-                <button type="submit" disabled={loading || backgroundReferenceUploading} className="w-full bg-white hover:bg-gray-200 text-black disabled:opacity-50 py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2">
+                <button type="submit" disabled={loading || backgroundReferenceUploading} className="w-full xl:col-span-2 bg-white hover:bg-gray-200 text-black disabled:opacity-50 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2">
                   {loading ? 'Generálás…' : '✨ Kép generálása'}
                 </button>
               </form>
