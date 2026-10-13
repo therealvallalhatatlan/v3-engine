@@ -63,6 +63,9 @@ const DEFAULT_STYLE_OPTIONS: PresetOption[] = [
   { value: 'dreamy-ethereal', label: 'Dreamy Ethereal' },
   { value: 'graphic-novel', label: 'Graphic Novel' },
   { value: 'police-speed-photo', label: 'Police Speeding Camera Photo' },
+  { value: 'paper-ghost-photo', label: 'Papírkísértet · White-page photo' },
+  { value: 'xerox-apparition', label: 'Xerox-jelenés · Damaged evidence' },
+  { value: 'white-noise-veil', label: 'Fehér zajfátyol · Airy apparition' },
 ];
 
 const DEFAULT_LOCATION_OPTIONS: PresetOption[] = [
