@@ -42,8 +42,9 @@ create table if not exists public.generation_events (
 create table if not exists public.generated_images (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references public.profiles(id) on delete cascade,
-  character_id uuid not null references public.characters(id) on delete cascade,
+  character_id uuid references public.characters(id) on delete cascade,
   character_ids jsonb not null default '[]'::jsonb,
+  generation_type text not null default 'character' check (generation_type in ('character', 'background')),
   storage_path text not null,
   prompt text,
   style text,
