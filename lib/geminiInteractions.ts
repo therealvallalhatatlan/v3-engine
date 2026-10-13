@@ -87,6 +87,8 @@ export async function generateImageInteraction(options: {
   additionalImages?: GeminiImageInput[];
   /** Optional environment reference. This image is explicitly labeled as a compositional/background reference. */
   backgroundReferenceImage?: GeminiImageInput;
+  /** Multiple environment references, each explicitly labeled to avoid confusing them with character references. */
+  backgroundReferenceImages?: GeminiImageInput[];
   previousInteractionId?: string | null;
   aspectRatio?: '16:9' | '9:16';
   imageSize?: '0.5K' | '1K' | '2K' | '4K';
@@ -100,13 +102,18 @@ export async function generateImageInteraction(options: {
   for (const image of options.additionalImages || []) {
     inputParts.push(inputToPart(image));
   }
-  if (options.backgroundReferenceImage) {
+  const environmentReferences = [
+    ...(options.backgroundReferenceImage ? [options.backgroundReferenceImage] : []),
+    ...(options.backgroundReferenceImages || []),
+  ];
+  environmentReferences.forEach((reference, index) => {
     inputParts.push({
       type: 'text',
-      text: '[BACKGROUND REFERENCE IMAGE]\nUse the following image only as an environmental and compositional reference. Do not paste it as the literal background.',
+      text: `[ENVIRONMENT REFERENCE IMAGE ${index + 1} OF ${environmentReferences.length}]\\nUse this image only as environmental, architectural, compositional, material, or lighting guidance. Do not use it as a character identity reference and do not paste it as a literal background plate.`,
     });
-    inputParts.push(inputToPart(options.backgroundReferenceImage));
-  }
+    inputParts.push(inputToPart(reference));
+  });
+
   inputParts.push({ type: 'text', text: options.prompt });
 
   const body: Record<string, unknown> = {
