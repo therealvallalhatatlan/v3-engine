@@ -758,7 +758,7 @@ export default function CharacterDetailPage() {
                 </div>
               )}
 
-              <form onSubmit={handleGenerate} className="mb-2 space-y-4 xl:mb-0 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+              <form onSubmit={handleGenerate} className="mb-2 space-y-4 xl:mb-0 xl:space-y-0 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
                 <div className="space-y-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2 xl:pb-2">
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1100,20 +1100,20 @@ export default function CharacterDetailPage() {
                       <div className="bg-gray-900 rounded p-3">
                         <div className="text-xs text-gray-400 mb-2">A: {style}</div>
                         <button type="button" className="w-full" onClick={() => setPreviewImage(result)}>
-                          <img src={result} alt="A" className="max-h-[calc(100vh-190px)] w-full rounded object-contain cursor-zoom-in" />
+                          <img src={result} alt="A" className="max-h-[calc(100vh-270px)] w-full rounded object-contain cursor-zoom-in" />
                         </button>
                       </div>
                       <div className="bg-gray-900 rounded p-3">
                         <div className="text-xs text-gray-400 mb-2">B: {compareStyle}</div>
                         <button type="button" className="w-full" onClick={() => setPreviewImage(compareResult)}>
-                          <img src={compareResult} alt="B" className="max-h-[calc(100vh-190px)] w-full rounded object-contain cursor-zoom-in" />
+                          <img src={compareResult} alt="B" className="max-h-[calc(100vh-270px)] w-full rounded object-contain cursor-zoom-in" />
                         </button>
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-3 w-full">
                       <button type="button" className="focus:outline-none rounded" onClick={() => setPreviewImage(result)}>
-                        <img src={result} alt="Generated scene" className="max-h-[calc(100vh-190px)] max-w-full rounded object-contain shadow-lg cursor-zoom-in" />
+                        <img src={result} alt="Generated scene" className="max-h-[calc(100vh-270px)] max-w-full rounded object-contain shadow-lg cursor-zoom-in" />
                       </button>
                       {editGenerationId && (
                         <button
