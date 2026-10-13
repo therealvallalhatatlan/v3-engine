@@ -114,28 +114,7 @@ export const BUILTIN_PRESETS: BuiltinPresetDefinition[] = [
   },
 
 
-  // Book illustration presets: monochrome photographic realism dissolving into the white page.
-  {
-    type: 'style',
-    key: 'paper-ghost-photo',
-    label: 'Papírkísértet · White-page photo',
-    prompt: 'Vállalhatatlan book-illustration signature: monochrome late-1990s documentary photorealism dissolving organically into the untouched white paper of a printed book page. The subject is rendered with genuine photographic anatomy, believable optics, delicate tonal detail and imperfect silver-gelatin character, but the image is not contained inside a rectangular photograph. Let selected contours, shadows, grain and fragments of the scene disintegrate gradually and irregularly into pure paper white through broken exposure, dry pigment-like particulate, pale ghost traces, interrupted halftone, soft erased edges and scattered photographic residue. The white page itself must become part of the composition, with large breathable areas of untouched white. Combine damaged 1990s black-and-white film, analog signal decay, subtle VHS/DV corruption, photocopy artifacts and a restrained painterly lightness, as if a haunting memory is being recalled from damaged photographic evidence. Elegant, airy, quiet, strange, literary, tactile and art-directed, never merely a filter. Uneven organic edge dissolution following the forms and atmosphere; no uniform vignette, no radial fade, no simple gradient mask. Preserve a few crisp photographic anchors while surrounding detail breaks apart into delicate, sparse marks and near-invisible traces. Designed to sit directly on a white book page with no visible image boundary.',
-    negative: 'no rectangular image frame, no border, no card or panel, no grey/off-white background field, no visible canvas, no paper sheet photographed as an object, no hard cutout silhouette, no uniform vignette, no simple linear or radial gradient fade, no watercolor wash, no ink line drawing, no vector illustration, no comic-book contours, no sepia, no color accents, no glossy digital art, no heavy painterly brushstrokes, no opaque fog covering the subject, no full-bleed background, no typography, no lettering, no watermark'
-  },
-  {
-    type: 'style',
-    key: 'xerox-apparition',
-    label: 'Xerox-jelenés · Damaged evidence',
-    prompt: 'Monochrome late-1990s underground evidence photograph translated into a sophisticated white-page book illustration. Photo-real human figure and environment, rough silver-gelatin grain, underexposure, photocopier toner breakup, damaged negative flecks, irregular scan errors, fragmented halftone and sparse analog glitch. Parts of the image appear to have been over-copied, erased or lost in transmission; shapes break into fine grain and discontinuous fragments, with white paper opening organically through shadows and peripheral details. Stronger blacks cluster around the essential subject, while secondary forms and edges disperse into airy white. Elegant asymmetry and chance, not graphic design decoration. No enclosing rectangle: the image floats on pure white paper and dissolves into it through different textures and local tonal events, never through one smooth gradient. The result feels like a damaged photographic memory found in a 1999 photocopy shop, with raw documentary truth and a delicate, almost weightless composition.',
-    negative: 'no framed photograph, no rectangular boundary, no solid grey backdrop, no simple gradient fade, no symmetrical vignette, no watercolor, no line art, no comic or woodcut style, no colorful glitch, no neon, no modern digital glitch overlays, no excess scratches covering the subject, no full-page background, no poster typography, no text, no watermark'
-  },
-  {
-    type: 'style',
-    key: 'white-noise-veil',
-    label: 'Fehér zajfátyol · Airy apparition',
-    prompt: 'Extremely airy monochrome fine-art book illustration on pure white page: photorealistic late-1990s analog photograph emerging from silence, with delicate silver-grey midtones, fine film grain and only a few deep charcoal accents. The image is partially present and partially missing. Contours dissolve according to the subject’s anatomy, light, smoke, motion and surrounding space into sparse particles, faint broken exposures, dry-brush-like tonal residue and subtle analog noise. Keep the central narrative gesture clearly recognizable, while peripheral detail becomes almost transparent and yields to vast untouched paper white. Painterly in its breathing rhythm and poetic restraint, yet photographic rather than drawn; damaged and imperfect, yet precise where it matters. The fading must be non-uniform, asymmetrical and materially varied, like a memory losing information, not a feathered selection or gradient. White is the actual page white and must remain clean enough to print without a noticeable grey wash. Minimal, haunting, elegant, weightless, art-book quality.',
-    negative: 'no dark or grey background, no visible rectangular canvas, no frame, no generic vignette, no uniform gradient, no watercolor, no ink drawing, no sketch outlines, no pastel colors, no beige paper simulation, no heavy fog, no blur covering the focal subject, no glossy beauty retouching, no dense full-image grain cloud, no decorative splashes, no text, no watermark'
-  },
+
 
 ];
 
