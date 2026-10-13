@@ -662,7 +662,7 @@ export default function CharacterDetailPage() {
     event.target.value = '';
     if (!files.length) return;
 
-    if (environmentReferenceImages.length + files.length > 6) {
+    if (environmentReferenceImages.length + files.length + (selectedLibraryBackground ? 1 : 0) > 6) {
       setEnvironmentReferenceError('Legfeljebb 6 környezeti referenciaképet adhatsz meg.');
       return;
     }
@@ -777,7 +777,14 @@ export default function CharacterDetailPage() {
       setResult(data.image); setCompareResult(data.compareImage || null); setEditGenerationId(data.generationId || null);
     } catch (e: any) {
       setError(e?.message || 'Generation failed');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      if (generationMode === 'character' && backgroundReferencePath) {
+        setBackgroundReferencePath('');
+        setBackgroundReferenceUrl('');
+        setBackgroundReferenceError('');
+      }
+    }
   };
 
   const selectedCharacters = generationMode === 'background' ? [] : [
@@ -806,13 +813,13 @@ export default function CharacterDetailPage() {
     <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-1 xl:mt-0 xl:h-[calc(100vh-64px)] xl:min-h-0 xl:overflow-hidden">
       <div className="w-full max-w-none px-3 xl:px-4 xl:h-full xl:min-h-0 xl:flex xl:flex-col">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold tracking-tight">Új jelenet</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{generationMode === "background" ? "Új háttér" : "Új jelenet"}</h1>
 
           <div className="flex min-w-0 items-center justify-end gap-3">
             <div className="max-w-[220px] truncate text-right text-sm font-semibold text-gray-300">
-              {character.name}
+              {generationMode === "background" ? "SZEREPLŐ NÉLKÜL" : character.name}
             </div>
-            {(character.imagePaths || []).slice(0, 1).map((img: string, i: number) => (
+            {generationMode === "character" && (character.imagePaths || []).slice(0, 1).map((img: string, i: number) => (
               <button
                 key={i}
                 type="button"
@@ -1026,17 +1033,17 @@ export default function CharacterDetailPage() {
                         multiple
                         className="hidden"
                         onChange={handleEnvironmentReferencesUpload}
-                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length >= 6}
+                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length + (selectedLibraryBackground ? 1 : 0) >= 6}
                       />
                       <button
                         type="button"
                         onClick={() => environmentReferenceInputRef.current?.click()}
-                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length >= 6}
+                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length + (selectedLibraryBackground ? 1 : 0) >= 6}
                         className="flex min-h-11 w-full items-center justify-center rounded-lg border border-dashed border-gray-700 bg-black/20 px-3 py-2 text-xs font-semibold text-gray-300 transition hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {environmentReferenceUploading ? 'Referenciaképek feltöltése…' : '＋ Referenciaképek hozzáadása'}
                       </button>
-                      <div className="text-[10px] text-gray-600">{environmentReferenceImages.length} / 6 feltöltött referencia</div>
+                      <div className="text-[10px] text-gray-600">{environmentReferenceImages.length + (selectedLibraryBackground ? 1 : 0)} / 6 referencia kiválasztva</div>
 
                       {environmentReferenceImages.length > 0 && (
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
