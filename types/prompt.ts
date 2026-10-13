@@ -31,6 +31,8 @@ export type SceneInput = {
   camera: string;
   /** True when a separate environment/background reference image is supplied. */
   backgroundReference?: boolean;
+  /** Generate an environment/background without any character identity constraints. */
+  backgroundOnly?: boolean;
 };
 
 export type LocationProfile = {
