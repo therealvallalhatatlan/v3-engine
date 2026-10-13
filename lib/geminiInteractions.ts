@@ -109,7 +109,7 @@ export async function generateImageInteraction(options: {
   environmentReferences.forEach((reference, index) => {
     inputParts.push({
       type: 'text',
-      text: `[ENVIRONMENT REFERENCE IMAGE ${index + 1} OF ${environmentReferences.length}]\\nUse this image only as environmental, architectural, compositional, material, or lighting guidance. Do not use it as a character identity reference and do not paste it as a literal background plate.`,
+      text: `[ENVIRONMENT REFERENCE IMAGE ${index + 1} OF ${environmentReferences.length}]\nUse this image only as environmental, architectural, compositional, material, or lighting guidance. Do not use it as a character identity reference and do not paste it as a literal background plate.`,
     });
     inputParts.push(inputToPart(reference));
   });
