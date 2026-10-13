@@ -541,7 +541,7 @@ export default function AnimationPanel({
             <h3 className="text-base font-semibold text-white">Eredmények</h3>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4">
             {finishedJobs.map((job) => (
               <article key={job.jobId} className="overflow-hidden rounded-2xl border border-gray-800 bg-zinc-950">
                 {job.status === 'done' && job.videoUrl ? (
@@ -655,9 +655,13 @@ export default function AnimationPanel({
         </section>
       )}
 
-      {jobs.length === 0 && images.length > 0 && (
-        <div className="rounded-xl border border-dashed border-gray-900 px-4 py-6 text-center text-xs text-gray-700">
-          A kész videók itt jelennek meg.
+      {jobs.length === 0 && (
+        <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-gray-800 px-6 py-10 text-center xl:min-h-[360px]">
+          <div className="max-w-md">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-gray-800 bg-black text-2xl">▶</div>
+            <div className="text-sm font-semibold text-gray-300">A generált videó itt jelenik meg</div>
+            <p className="mt-2 text-xs leading-5 text-gray-600">{images.length > 0 ? "Válassz képkockát és indítsd el a videógenerálást. Az elkészült videó ezen a panelen lesz lejátszható." : "Először készíts egy képet a Generálás fülön, majd itt videóvá alakíthatod."}</p>
+          </div>
         </div>
       )}
         </section>
