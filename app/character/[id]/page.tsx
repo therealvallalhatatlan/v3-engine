@@ -128,7 +128,9 @@ const GLOBAL_DEFAULT_PRESET_KEY = `illustration.generate.defaultPreset.${GENERAT
 };
 
 type GenerateFormPreset = { id: string; name: string; updatedAt: number; data: GenerateFormState };
-type Tab = 'generate' | 'animate' | 'gallery';
+type Tab = 'generate' | 'animate' | 'gallery' | 'backgrounds';
+type GenerationMode = 'character' | 'background';
+type LibraryBackground = { id: string; filename: string; url: string; created: number; meta?: { prompt?: string; style?: string; aspectRatio?: string } | null };
 
 type PresetCatalogResponse = {
   presets?: {
@@ -177,6 +179,7 @@ function compressBackgroundReference(file: File): Promise<Blob> {
 }
 
 const Gallery = dynamic(() => import('./Gallery'), { ssr: false });
+const BackgroundLibrary = dynamic(() => import('./BackgroundLibrary'), { ssr: false });
 const ImageEditChat = dynamic(() => import('./ImageEditChat'), { ssr: false });
 const AnimationPanel = dynamic(() => import('./AnimationPanel'), { ssr: false });
 
@@ -196,6 +199,7 @@ export default function CharacterDetailPage() {
   const [userPlan, setUserPlan] = useState<'free' | 'paid' | 'admin'>('free');
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('generate');
+  const [generationMode, setGenerationMode] = useState<GenerationMode>('character');
   const [cameraOptions, setCameraOptions] = useState(DEFAULT_CAMERA_OPTIONS);
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
   const [locationPresetOptions, setLocationPresetOptions] = useState(DEFAULT_LOCATION_OPTIONS);
@@ -249,6 +253,11 @@ export default function CharacterDetailPage() {
   const [backgroundReferenceUrl, setBackgroundReferenceUrl] = useState('');
   const [backgroundReferenceUploading, setBackgroundReferenceUploading] = useState(false);
   const [backgroundReferenceError, setBackgroundReferenceError] = useState('');
+  const [environmentReferenceImages, setEnvironmentReferenceImages] = useState<Array<{ path: string; url: string; name: string }>>([]);
+  const [environmentReferenceUploading, setEnvironmentReferenceUploading] = useState(false);
+  const [environmentReferenceError, setEnvironmentReferenceError] = useState('');
+  const environmentReferenceInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedLibraryBackground, setSelectedLibraryBackground] = useState<LibraryBackground | null>(null);
 
   const hydratedRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -648,6 +657,82 @@ export default function CharacterDetailPage() {
     }
   };
 
+  const handleEnvironmentReferencesUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+
+    if (environmentReferenceImages.length + files.length > 6) {
+      setEnvironmentReferenceError('Legfeljebb 6 környezeti referenciaképet adhatsz meg.');
+      return;
+    }
+    for (const file of files) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        setEnvironmentReferenceError('Csak JPG, PNG vagy WebP kép tölthető fel.');
+        return;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        setEnvironmentReferenceError(`Egy referencia-kép legfeljebb 8 MB lehet: ${file.name}`);
+        return;
+      }
+    }
+
+    setEnvironmentReferenceUploading(true);
+    setEnvironmentReferenceError('');
+    const uploaded: Array<{ path: string; url: string; name: string }> = [];
+    try {
+      const supabase = createSupabaseBrowserClient();
+      for (const file of files) {
+        const compressed = await compressBackgroundReference(file);
+        const createResponse = await fetch('/api/generate/background-reference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentType: 'image/jpeg', size: compressed.size }),
+        });
+        const createData = await createResponse.json();
+        if (!createResponse.ok) throw new Error(createData?.error || 'A referencia-kép feltöltésének előkészítése sikertelen.');
+        const path = String(createData.path || '');
+        const token = String(createData.token || '');
+        if (!path || !token) throw new Error('Hiányzó feltöltési token.');
+
+        const { error: uploadError } = await supabase.storage
+          .from('v3-media')
+          .uploadToSignedUrl(path, token, compressed, { contentType: 'image/jpeg', cacheControl: '3600' });
+        if (uploadError) throw new Error(`A referencia-kép feltöltése sikertelen: ${uploadError.message}`);
+
+        const previewResponse = await fetch('/api/generate/background-reference?path=' + encodeURIComponent(path), { cache: 'no-store' });
+        const previewData = await previewResponse.json();
+        if (!previewResponse.ok) throw new Error(previewData?.error || 'A referencia-kép előnézete nem tölthető be.');
+        uploaded.push({ path, url: String(previewData.url || ''), name: file.name });
+      }
+      setEnvironmentReferenceImages((current) => [...current, ...uploaded]);
+    } catch (uploadError: any) {
+      await Promise.all(uploaded.map(async (item) => {
+        try {
+          await fetch('/api/generate/background-reference', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.path }),
+          });
+        } catch {}
+      }));
+      setEnvironmentReferenceError(uploadError?.message || 'A referencia-képek feltöltése sikertelen.');
+    } finally {
+      setEnvironmentReferenceUploading(false);
+    }
+  };
+
+  const removeEnvironmentReference = async (path: string) => {
+    setEnvironmentReferenceImages((current) => current.filter((item) => item.path !== path));
+    try {
+      await fetch('/api/generate/background-reference', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+    } catch {}
+  };
+
   const clearBackgroundReference = async () => {
     const path = backgroundReferencePath;
     setBackgroundReferencePath('');
@@ -670,15 +755,19 @@ export default function CharacterDetailPage() {
     persistHistoryValue(LIGHTING_HISTORY_KEY, lighting, lightingHistory, setLightingHistory);
     setLoading(true); setError(''); setResult(null); setCompareResult(null);
     try {
-      const characterIds = [primaryCharacterId, ...extraCharacterIds].filter(Boolean);
+      const characterIds = generationMode === 'background' ? [] : [primaryCharacterId, ...extraCharacterIds].filter(Boolean);
       const selectedAliasMap: Record<string, string> = {};
       for (const id of characterIds) if (aliasMap[id]?.trim()) selectedAliasMap[id] = aliasMap[id].trim();
       const compareStylePayload = compareMode && compareStyle !== style ? compareStyle : undefined;
       const response = await fetch('/api/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          characterId: primaryCharacterId, characterIds, aliasMap: selectedAliasMap, location, lighting, actionPrompt,
-          backgroundReferencePath: backgroundReferencePath || undefined,
+          generationMode,
+          characterId: generationMode === 'background' ? undefined : primaryCharacterId,
+          characterIds, aliasMap: selectedAliasMap, location, lighting, actionPrompt,
+          backgroundReferencePath: generationMode === 'character' ? backgroundReferencePath || undefined : undefined,
+          backgroundReferencePaths: generationMode === 'background' ? environmentReferenceImages.map((item) => item.path) : [],
+          backgroundReferenceGenerationIds: selectedLibraryBackground ? [selectedLibraryBackground.id] : [],
           scenePackage: { locationProfile: { preset: locationPreset, detail: location, geometry: locationGeometry, lightingAndTime: lighting, paletteAndTexture: locationPalette, fixedProps: locationProps, cameraContinuity: locationCameraContinuity }, continuity: { lockGeometry, lockLighting, lockPalette, lockProps, lockCameraRules, notes: continuityNotes.trim() || undefined }, bilingualInput: { sourceLanguage: 'mixed' } },
           camera, aspectRatio, style, styleIntensity, compareStyle: compareStylePayload,
         }),
@@ -691,7 +780,7 @@ export default function CharacterDetailPage() {
     } finally { setLoading(false); }
   };
 
-  const selectedCharacters = [
+  const selectedCharacters = generationMode === 'background' ? [] : [
     ...(character ? [character] : []),
     ...extraCharacterIds.map((id) => allCharacters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)),
   ];
@@ -707,6 +796,7 @@ export default function CharacterDetailPage() {
 
   const removeExtraCharacter = (id: string) => setExtraCharacterIds((prev) => prev.filter((value) => value !== id));
   const handleUseForAnimation = (url: string) => { setAnimatePreselectedUrl(url); setActiveTab('animate'); };
+  const handleUseBackgroundAsReference = (image: LibraryBackground) => { setSelectedLibraryBackground(image); setActiveTab('generate'); };
 
   const locationPresetCount = useMemo(() => locationPresetOptions.length, [locationPresetOptions]);
   const isPaid = userPlan === 'paid' || userPlan === 'admin';
