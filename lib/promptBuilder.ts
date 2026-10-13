@@ -285,3 +285,31 @@ export function buildFinalPromptMulti(
 
   return blocks.join('\n\n');
 }
+
+
+/**
+ * Build a location-first prompt without creating or implying a character identity.
+ * Reference images are interpreted as environmental/layout/material references by
+ * the interaction layer, not as character identity references.
+ */
+export function buildBackgroundOnlyPrompt(scene: SceneInput): string {
+  const backgroundScene: SceneInput = { ...scene, backgroundOnly: true, castAliases: [] };
+  const description = backgroundScene.actionPrompt?.trim()
+    ? `\\n[ENVIRONMENT BRIEF]\\n${backgroundScene.actionPrompt.trim()}\\n`
+    : '';
+  return [
+    `[BACKGROUND / ENVIRONMENT GENERATION]
+Generate a standalone environment plate for a visual production workflow. The location itself is the subject.
+- Do not generate any people, characters, faces, human silhouettes, mannequins, body parts, or implied foreground figures.
+- Prioritize believable architecture, spatial layout, objects, surface materials, atmospheric depth, and coherent lighting.
+- Keep the scene composition usable as a background plate that can later receive a character.
+- Treat any supplied reference images as environmental/compositional/material guidance, not as identity or character references.
+- Reconstruct the environment coherently; do not simply collage the supplied references.
+`,
+    description,
+    buildSceneBlock(backgroundScene),
+    getCamera(backgroundScene.camera),
+    getStyleBlock(backgroundScene.style, backgroundScene.styleIntensity),
+    getNegativeBlock(backgroundScene.style, backgroundScene.styleIntensity),
+  ].filter(Boolean).join('\\n\\n');
+}
