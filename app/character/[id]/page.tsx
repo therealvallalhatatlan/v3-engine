@@ -987,83 +987,149 @@ export default function CharacterDetailPage() {
                 <div className="rounded-lg border border-gray-800 bg-zinc-950 p-3 xl:p-2">
                   <div className="text-sm font-semibold text-gray-300 mb-3">Szereplők</div>
 
-                  <div className="flex gap-2 mb-3">
+                  <div className="grid grid-cols-3 gap-2 mb-3">
                     <button
                       type="button"
-                      onClick={() => { setExtraCharacterIds([]); setPendingCharacterId(""); }}
-                      className={selectedCharacters.length === 1 ? "flex-1 px-3 py-2 rounded border border-white bg-white text-black text-xs font-semibold" : "flex-1 px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
+                      onClick={() => setGenerationMode('background')}
+                      className={generationMode === 'background' ? "rounded border border-white bg-white px-2 py-2 text-black text-xs font-semibold" : "rounded border border-gray-700 px-2 py-2 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
+                    >
+                      0 karakter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setGenerationMode('character'); setExtraCharacterIds([]); setPendingCharacterId(''); }}
+                      className={generationMode === 'character' && selectedCharacters.length === 1 ? "rounded border border-white bg-white px-2 py-2 text-black text-xs font-semibold" : "rounded border border-gray-700 px-2 py-2 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
                     >
                       1 karakter
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPendingCharacterId((current) => current || availableCharacters[0]?.id || "")}
+                      onClick={() => { setGenerationMode('character'); setPendingCharacterId((current) => current || availableCharacters[0]?.id || ''); }}
                       disabled={!availableCharacters.length}
-                      className={selectedCharacters.length > 1 ? "flex-1 px-3 py-2 rounded border border-white bg-white text-black text-xs font-semibold" : "flex-1 px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
+                      className={generationMode === 'character' && (selectedCharacters.length > 1 || Boolean(pendingCharacterId)) ? "rounded border border-white bg-white px-2 py-2 text-black text-xs font-semibold" : "rounded border border-gray-700 px-2 py-2 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"}
                     >
                       2 karakter
                     </button>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {selectedCharacters.map((item) => (
-                      <span key={item.id} className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
-                        {item.name}
-                      </span>
-                    ))}
-                  </div>
+                  {generationMode === 'background' ? (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-gray-800 bg-black/30 p-3">
+                        <div className="text-xs font-semibold text-gray-200">Önálló háttérgenerálás</div>
+                        <p className="mt-1 text-[11px] leading-5 text-gray-500">Nem készül karakter-DNS, és a prompt kifejezetten szereplők nélküli helyszínt kér. Több referenciaképpel is megadhatod az építészetet, anyagokat, fényeket és kompozíciót.</p>
+                      </div>
 
-                  <div className="flex gap-2">
-                    <select
-                      className="flex-1 p-2 rounded bg-gray-900 border border-gray-700 text-sm"
-                      value={pendingCharacterId}
-                      onChange={(e) => setPendingCharacterId(e.target.value)}
-                    >
-                      <option value="">+ Második karakter</option>
-                      {availableCharacters.map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={addExtraCharacter}
-                      disabled={!pendingCharacterId}
-                      className="px-3 py-2 rounded bg-gray-800 border border-gray-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Hozzáadás
-                    </button>
-                  </div>
+                      <input
+                        ref={environmentReferenceInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        className="hidden"
+                        onChange={handleEnvironmentReferencesUpload}
+                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length >= 6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => environmentReferenceInputRef.current?.click()}
+                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length >= 6}
+                        className="flex min-h-11 w-full items-center justify-center rounded-lg border border-dashed border-gray-700 bg-black/20 px-3 py-2 text-xs font-semibold text-gray-300 transition hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {environmentReferenceUploading ? 'Referenciaképek feltöltése…' : '＋ Referenciaképek hozzáadása'}
+                      </button>
+                      <div className="text-[10px] text-gray-600">{environmentReferenceImages.length} / 6 feltöltött referencia</div>
 
-                  {selectedCharacters.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => { setExtraCharacterIds([]); setPendingCharacterId(""); }}
-                      className="mt-3 text-xs px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
-                    >
-                      Vissza 1 karakterre
-                    </button>
-                  )}
-
-                  {isPaid && selectedCharacters.length > 1 && (
-                    <div className="mt-3 space-y-2">
-                      {selectedCharacters.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2">
-                          <div className="w-40 text-xs text-gray-400 truncate">{item.name}</div>
-                          <input
-                            className="w-28 p-1.5 rounded bg-gray-900 border border-gray-700 text-xs"
-                            value={aliasMap[item.id] || ""}
-                            onChange={(e) => setAliasMap((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            placeholder="Alias"
-                            maxLength={12}
-                          />
-                          {item.id !== primaryCharacterId && (
-                            <button type="button" onClick={() => removeExtraCharacter(item.id)} className="text-xs px-2 py-1 rounded border border-gray-700">
-                              Törlés
-                            </button>
-                          )}
+                      {environmentReferenceImages.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {environmentReferenceImages.map((image) => (
+                            <div key={image.path} className="relative overflow-hidden rounded-lg border border-gray-800 bg-black">
+                              <img src={image.url} alt={image.name} className="aspect-video w-full object-contain" />
+                              <div className="truncate px-2 py-1 text-[10px] text-gray-500">{image.name}</div>
+                              <button type="button" onClick={() => void removeEnvironmentReference(image.path)} disabled={loading} className="absolute right-1 top-1 rounded bg-black/80 px-2 py-1 text-[10px] text-white hover:bg-red-950">×</button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
+                      {environmentReferenceError && <div className="rounded-lg border border-red-900 bg-red-950/30 px-3 py-2 text-xs text-red-300">{environmentReferenceError}</div>}
+
+                      {selectedLibraryBackground && (
+                        <div className="flex items-center gap-3 rounded-lg border border-gray-800 bg-black p-2">
+                          <img src={selectedLibraryBackground.url} alt="Kiválasztott háttérkönyvtári referencia" className="h-14 w-24 rounded bg-zinc-950 object-contain" />
+                          <div className="min-w-0 flex-1"><div className="text-xs font-medium text-gray-300">Háttérkönyvtári referencia</div><div className="truncate text-[10px] text-gray-600">{selectedLibraryBackground.filename}</div></div>
+                          <button type="button" onClick={() => setSelectedLibraryBackground(null)} className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-400 hover:text-white">Eltávolítás</button>
+                        </div>
+                      )}
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {selectedCharacters.map((item) => (
+                          <span key={item.id} className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
+                            {item.name}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <select
+                          className="flex-1 p-2 rounded bg-gray-900 border border-gray-700 text-sm"
+                          value={pendingCharacterId}
+                          onChange={(e) => setPendingCharacterId(e.target.value)}
+                        >
+                          <option value="">+ Második karakter</option>
+                          {availableCharacters.map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={addExtraCharacter}
+                          disabled={!pendingCharacterId}
+                          className="px-3 py-2 rounded bg-gray-800 border border-gray-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Hozzáadás
+                        </button>
+                      </div>
+
+                      {selectedCharacters.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => { setExtraCharacterIds([]); setPendingCharacterId(''); }}
+                          className="mt-3 text-xs px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
+                        >
+                          Vissza 1 karakterre
+                        </button>
+                      )}
+
+                      {selectedLibraryBackground && (
+                        <div className="mt-3 flex items-center gap-3 rounded-lg border border-gray-800 bg-black p-2">
+                          <img src={selectedLibraryBackground.url} alt="Kiválasztott háttérkönyvtári referencia" className="h-14 w-24 rounded bg-zinc-950 object-contain" />
+                          <div className="min-w-0 flex-1"><div className="text-xs font-medium text-gray-300">Háttérkönyvtári referencia</div><div className="truncate text-[10px] text-gray-600">{selectedLibraryBackground.filename}</div></div>
+                          <button type="button" onClick={() => setSelectedLibraryBackground(null)} className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-400 hover:text-white">Eltávolítás</button>
+                        </div>
+                      )}
+
+                      {isPaid && selectedCharacters.length > 1 && (
+                        <div className="mt-3 space-y-2">
+                          {selectedCharacters.map((item) => (
+                            <div key={item.id} className="flex items-center gap-2">
+                              <div className="w-40 text-xs text-gray-400 truncate">{item.name}</div>
+                              <input
+                                className="w-28 p-1.5 rounded bg-gray-900 border border-gray-700 text-xs"
+                                value={aliasMap[item.id] || ""}
+                                onChange={(e) => setAliasMap((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                placeholder="Alias"
+                                maxLength={12}
+                              />
+                              {item.id !== primaryCharacterId && (
+                                <button type="button" onClick={() => removeExtraCharacter(item.id)} className="text-xs px-2 py-1 rounded border border-gray-700">
+                                  Törlés
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -1248,6 +1314,10 @@ export default function CharacterDetailPage() {
               initialSelectedUrl={animatePreselectedUrl || undefined}
               characterIds={[primaryCharacterId, ...extraCharacterIds].filter(Boolean)}
             />
+          )}
+
+          {activeTab === 'backgrounds' && (
+            <BackgroundLibrary onUseAsReference={handleUseBackgroundAsReference} />
           )}
 
           {activeTab === 'gallery' && (
