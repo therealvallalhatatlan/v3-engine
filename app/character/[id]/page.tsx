@@ -852,7 +852,7 @@ export default function CharacterDetailPage() {
                 <div className="space-y-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2 xl:pb-2">
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <label className="text-sm font-semibold text-gray-300">Helyszín</label>
+                    <label className="text-sm font-semibold text-gray-300">{generationMode === "background" ? "Helyszín / környezet" : "Helyszín"}</label>
                     <select
                       className="w-full sm:w-auto sm:min-w-[280px] rounded bg-gray-900 border border-gray-700 p-2 text-sm"
                       value={locationPreset}
@@ -867,10 +867,11 @@ export default function CharacterDetailPage() {
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     rows={2}
-                    placeholder="Hol történjen a jelenet? A preset az alap környezetet adja, ezt itt pontosíthatod."
+                    placeholder={generationMode === "background" ? "Írd le a hátteret: például üres budapesti bérházfolyosó hajnalban, szereplők nélkül…" : "Hol történjen a jelenet? A preset az alap környezetet adja, ezt itt pontosíthatod."}
                   />
                 </div>
 
+                {generationMode === 'character' && (
                 <div className="space-y-2 rounded-lg border border-gray-800 bg-zinc-950 p-3 xl:p-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -926,12 +927,20 @@ export default function CharacterDetailPage() {
                     </button>
                   )}
 
+                  {selectedLibraryBackground && (
+                    <div className="flex items-center gap-3 rounded-lg border border-gray-800 bg-black p-2">
+                      <img src={selectedLibraryBackground.url} alt="Kiválasztott háttérkönyvtári referencia" className="h-14 w-24 rounded object-contain bg-zinc-950" />
+                      <div className="min-w-0 flex-1"><div className="text-xs font-medium text-gray-300">Háttérkönyvtári referencia</div><div className="truncate text-[10px] text-gray-600">{selectedLibraryBackground.filename}</div></div>
+                      <button type="button" onClick={() => setSelectedLibraryBackground(null)} className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-400 hover:text-white">Eltávolítás</button>
+                    </div>
+                  )}
                   {backgroundReferenceError && (
                     <div className="rounded-lg border border-red-900 bg-red-950/30 px-3 py-2 text-xs text-red-300">
                       {backgroundReferenceError}
                     </div>
                   )}
                 </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -965,13 +974,13 @@ export default function CharacterDetailPage() {
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-sm font-semibold text-gray-300">Mi történjen?</label>
+                  <label className="block mb-1 text-sm font-semibold text-gray-300">{generationMode === "background" ? "További környezeti részletek" : "Mi történjen?"}</label>
                   <textarea
                     className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={actionPrompt}
                     onChange={(e) => setActionPrompt(e.target.value)}
                     rows={2}
-                    placeholder="Írd le, mit csináljon a karakter."
+                    placeholder={generationMode === "background" ? "Anyagok, berendezés, tárgyak, időjárás, atmoszféra, kompozíció…" : "Írd le, mit csináljon a karakter."}
                   />
                 </div>
 
