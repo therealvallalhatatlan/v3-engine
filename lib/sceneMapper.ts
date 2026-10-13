@@ -131,6 +131,15 @@ ${composition}
 
 function buildBackgroundReferenceBlock(scene: SceneInput): string {
   if (!scene.backgroundReference) return '';
+  if (scene.backgroundOnly) {
+    return `
+[ENVIRONMENT REFERENCE GUIDANCE]
+- Treat every supplied reference as environment, architecture, object, material, palette, lighting, or composition guidance only.
+- Do not reproduce people or characters that happen to appear in any reference.
+- No human figures, faces, silhouettes, mannequins, or body parts should appear in the final image.
+- Reconstruct a coherent environment; do not paste reference images together or reproduce them pixel-for-pixel.
+`;
+  }
   return `
 [BACKGROUND REFERENCE]
 - Treat the supplied background reference image as an environmental and compositional guide, never as a literal background plate.
