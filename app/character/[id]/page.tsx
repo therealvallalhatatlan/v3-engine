@@ -713,9 +713,9 @@ export default function CharacterDetailPage() {
   if (!character) return <LoadingScreen />;
 
   return (
-    <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-2 xl:mt-1">
-      <div className="w-full max-w-[1600px] px-4 xl:px-6">
-        <div className="mb-3 flex items-center justify-between gap-4">
+    <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-1 xl:mt-0 xl:h-[calc(100vh-64px)] xl:min-h-0 xl:overflow-hidden">
+      <div className="w-full max-w-none px-3 xl:px-4 xl:h-full xl:min-h-0 xl:flex xl:flex-col">
+        <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
           <h1 className="text-3xl font-bold tracking-tight">Új jelenet</h1>
 
           <div className="flex min-w-0 items-center justify-end gap-3">
@@ -743,20 +743,23 @@ export default function CharacterDetailPage() {
           </div>
         </div>
 
-        <div className="flex gap-1 mb-2 bg-zinc-950 rounded-lg border border-gray-800 p-1">
+        <div className="flex shrink-0 gap-1 mb-2 bg-zinc-950 rounded-lg border border-gray-800 p-1">
           {(['generate', ...(isPaid ? ['animate'] : []), 'gallery'] as Tab[]).map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`flex-1 py-2 rounded text-sm font-semibold ${activeTab === tab ? 'bg-zinc-800 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-zinc-800'}`}>{tab === 'generate' ? '✨ ' : tab === 'animate' ? '▶ ' : '🖼 '}{tab === 'generate' ? 'Generálás' : tab === 'animate' ? 'Videó' : 'Galéria'}</button>)}
         </div>
 
-        <div className="bg-zinc-950 rounded-lg p-2 xl:p-3">
+        <div className="bg-zinc-950 rounded-lg p-2 xl:p-3 xl:flex-1 xl:min-h-0 xl:overflow-hidden">
           {activeTab === 'generate' && (
             <>
+              <div className="xl:grid xl:h-full xl:min-h-0 xl:grid-cols-[minmax(400px,0.72fr)_minmax(0,1.28fr)] xl:gap-4">
+                <section className="xl:flex xl:min-h-0 xl:flex-col">
               {!isPaid && (
                 <div className="mb-2 rounded-lg border border-gray-800 bg-zinc-950 p-2 xl:p-2 text-xs text-zinc-500">
                   FREE mód · 6 ingyenes kredit · alap generátor
                 </div>
               )}
 
-              <form onSubmit={handleGenerate} className="mb-2 space-y-4 xl:mb-0 xl:space-y-0 xl:grid xl:grid-cols-2 xl:items-start xl:gap-x-4 xl:gap-y-3">
+              <form onSubmit={handleGenerate} className="mb-2 space-y-4 xl:mb-0 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+                <div className="space-y-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2 xl:pb-2">
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <label className="text-sm font-semibold text-gray-300">Helyszín</label>
@@ -1071,34 +1074,46 @@ export default function CharacterDetailPage() {
                   </>
                 )}
 
+                </div>
+                <div className="mt-3 shrink-0 border-t border-gray-800 pt-3">
                 {error && <div className="text-red-400 text-sm bg-red-950/50 border border-red-900 rounded px-3 py-2">{error}</div>}
 
                 <button type="submit" disabled={loading || backgroundReferenceUploading} className="w-full xl:col-span-2 bg-white hover:bg-gray-200 text-black disabled:opacity-50 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2">
                   {loading ? 'Generálás…' : '✨ Kép generálása'}
                 </button>
+                </div>
               </form>
-
-              {result && (
+              </section>
+              <section className="mt-3 rounded-lg border border-gray-800 bg-black/30 p-3 xl:mt-0 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
+                <div className="mb-3 flex shrink-0 items-center justify-between gap-3 border-b border-gray-800 pb-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-gray-600">LIVE OUTPUT</div>
+                    <h2 className="mt-1 text-sm font-semibold text-gray-200">Generált eredmény</h2>
+                  </div>
+                  <span className="text-[10px] text-gray-600">{compareResult ? "A/B összehasonlítás" : result ? "Kép kész" : loading ? "Generálás folyamatban…" : "Várakozik"}</span>
+                </div>
+                <div className="min-h-[300px] xl:min-h-0 xl:flex-1 xl:overflow-y-auto rounded-lg bg-zinc-950 p-2">
+              {result ? (
                 <div className="space-y-4">
                   {compareResult ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-gray-900 rounded p-3">
                         <div className="text-xs text-gray-400 mb-2">A: {style}</div>
                         <button type="button" className="w-full" onClick={() => setPreviewImage(result)}>
-                          <img src={result} alt="A" className="rounded w-full cursor-zoom-in" />
+                          <img src={result} alt="A" className="max-h-[calc(100vh-190px)] w-full rounded object-contain cursor-zoom-in" />
                         </button>
                       </div>
                       <div className="bg-gray-900 rounded p-3">
                         <div className="text-xs text-gray-400 mb-2">B: {compareStyle}</div>
                         <button type="button" className="w-full" onClick={() => setPreviewImage(compareResult)}>
-                          <img src={compareResult} alt="B" className="rounded w-full cursor-zoom-in" />
+                          <img src={compareResult} alt="B" className="max-h-[calc(100vh-190px)] w-full rounded object-contain cursor-zoom-in" />
                         </button>
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-3 w-full">
                       <button type="button" className="focus:outline-none rounded" onClick={() => setPreviewImage(result)}>
-                        <img src={result} alt="Generated scene" className="rounded shadow-lg max-w-full cursor-zoom-in" />
+                        <img src={result} alt="Generated scene" className="max-h-[calc(100vh-190px)] max-w-full rounded object-contain shadow-lg cursor-zoom-in" />
                       </button>
                       {editGenerationId && (
                         <button
@@ -1112,7 +1127,18 @@ export default function CharacterDetailPage() {
                     </div>
                   )}
                 </div>
+              ) : (
+                <div className="flex min-h-[300px] xl:min-h-full items-center justify-center p-8 text-center">
+                  <div className="max-w-md">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-gray-800 bg-black text-2xl">✳</div>
+                    <div className="text-sm font-semibold text-gray-300">A generált kép itt jelenik meg</div>
+                    <p className="mt-2 text-xs leading-5 text-gray-600">Állítsd be a jelenetet bal oldalon, majd indítsd el a generálást. Az eredmény ezen a panelen marad.</p>
+                  </div>
+                </div>
               )}
+                </div>
+              </section>
+              </div>
             </>
           )}
 
