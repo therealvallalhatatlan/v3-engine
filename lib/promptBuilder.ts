@@ -292,10 +292,14 @@ export function buildFinalPromptMulti(
  * Reference images are interpreted as environmental/layout/material references by
  * the interaction layer, not as character identity references.
  */
+/**
+ * Build a location-first prompt without creating or implying a character identity.
+ * Environment references are treated as composition, materials, architecture and lighting guidance.
+ */
 export function buildBackgroundOnlyPrompt(scene: SceneInput): string {
   const backgroundScene: SceneInput = { ...scene, backgroundOnly: true, castAliases: [] };
   const description = backgroundScene.actionPrompt?.trim()
-    ? `\\n[ENVIRONMENT BRIEF]\\n${backgroundScene.actionPrompt.trim()}\\n`
+    ? `\n[ENVIRONMENT BRIEF]\n${backgroundScene.actionPrompt.trim()}\n`
     : '';
   return [
     `[BACKGROUND / ENVIRONMENT GENERATION]
