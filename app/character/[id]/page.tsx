@@ -803,7 +803,7 @@ export default function CharacterDetailPage() {
 
   const removeExtraCharacter = (id: string) => setExtraCharacterIds((prev) => prev.filter((value) => value !== id));
   const handleUseForAnimation = (url: string) => { setAnimatePreselectedUrl(url); setActiveTab('animate'); };
-  const handleUseBackgroundAsReference = (image: LibraryBackground) => { setSelectedLibraryBackground(image); setActiveTab('generate'); };
+  const handleUseBackgroundAsReference = (image: LibraryBackground) => { setSelectedLibraryBackground(image); setGenerationMode('character'); setActiveTab('generate'); };
 
   const locationPresetCount = useMemo(() => locationPresetOptions.length, [locationPresetOptions]);
   const isPaid = userPlan === 'paid' || userPlan === 'admin';
