@@ -371,7 +371,7 @@ export async function POST(req: NextRequest) {
       owner_id: user.id,
       character_id: currentGeneration.character_id,
       character_ids: allCharacterIds,
-      generation_type: currentGeneration.generation_type || 'character',
+      generation_type: allCharacterIds.length > 0 ? 'character' : currentGeneration.generation_type || 'character',
       storage_path: storagePath,
       prompt,
       style: currentGeneration.style,
