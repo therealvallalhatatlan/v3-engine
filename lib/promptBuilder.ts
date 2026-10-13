@@ -315,5 +315,5 @@ Generate a standalone environment plate for a visual production workflow. The lo
     getCamera(backgroundScene.camera),
     getStyleBlock(backgroundScene.style, backgroundScene.styleIntensity),
     getNegativeBlock(backgroundScene.style, backgroundScene.styleIntensity),
-  ].filter(Boolean).join('\\n\\n');
+  ].filter(Boolean).join('\n\n');
 }
