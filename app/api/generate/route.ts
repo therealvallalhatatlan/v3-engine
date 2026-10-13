@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
       libraryEnvironmentReferenceDataUrls = await Promise.all(backgroundRows.map((row) => downloadAsDataUrl(row.storage_path)));
     }
     const backgroundReferenceImages = [...environmentReferenceDataUrls, ...libraryEnvironmentReferenceDataUrls].map((dataUrl) => {
-      const match = String(dataUrl).match(/^data:(image\\/[^;]+);base64,(.+)$/);
+      const match = String(dataUrl).match(/^data:(image\/[^;]+);base64,(.+)$/);
       return { mimeType: match?.[1] || 'image/jpeg', data: match?.[2] || '' };
     });
     const compareStyleKey = isPaid ? requestedCompareStyleKey : null;
