@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateImageInteraction } from '../../../lib/geminiInteractions';
-import { buildFinalPrompt, buildFinalPromptMulti } from '../../../lib/promptBuilder';
+import { buildFinalPrompt, buildFinalPromptMulti, buildBackgroundOnlyPrompt } from '../../../lib/promptBuilder';
 import { buildCharacterDNAFromCharacter } from '../../../lib/promptBuilder';
 import { AspectRatio16x9, LocationPreset, SceneInput, ScenePackageInput, ShotTemplate } from '../../../types/prompt';
 import { normalizeToPromptEnglish } from '../../../lib/sceneMapper';
@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
 
     const data = await req.json();
     const { characterId, characterIds, aliasMap, location, lighting, mood, actionPrompt, camera, aspectRatio, style, styleIntensity, compareStyle, textOnly, scenePackage, backgroundReferencePath } = data;
+    const backgroundOnly = data?.generationMode === 'background' || data?.backgroundOnly === true;
     const lightingText = normalizeText(typeof lighting === 'string' ? lighting : mood, 500);
     const requestedBackgroundReferencePath = String(backgroundReferencePath || '').trim();
     let backgroundReferenceDataUrl = '';
@@ -114,8 +115,26 @@ export async function POST(req: NextRequest) {
       backgroundReferencePathForCleanup = requestedBackgroundReferencePath;
       backgroundReferenceDataUrl = await downloadAsDataUrl(requestedBackgroundReferencePath);
     }
-    const normalizedCharacterIds = Array.from(new Set([...(Array.isArray(characterIds) ? characterIds : []), characterId].map((id) => String(id || '').trim()).filter(Boolean)));
-    if (normalizedCharacterIds.length === 0) return NextResponse.json({ error: 'characterId or characterIds is required' }, { status: 400 });
+    const normalizedCharacterIds = backgroundOnly
+      ? []
+      : Array.from(new Set([...(Array.isArray(characterIds) ? characterIds : []), characterId].map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!backgroundOnly && normalizedCharacterIds.length === 0) {
+      return NextResponse.json({ error: 'characterId or characterIds is required unless generationMode is background' }, { status: 400 });
+    }
+    const rawEnvironmentPaths = backgroundOnly && Array.isArray(data?.backgroundReferencePaths)
+      ? data.backgroundReferencePaths.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const rawEnvironmentIds = Array.isArray(data?.backgroundReferenceGenerationIds)
+      ? Array.from(new Set(data.backgroundReferenceGenerationIds.map((value: unknown) => String(value || '').trim()).filter(Boolean)))
+      : [];
+    if (rawEnvironmentPaths.length + rawEnvironmentIds.length > 6) {
+      return NextResponse.json({ error: 'Legfeljebb 6 környezeti referenciakép használható egyszerre.' }, { status: 400 });
+    }
+    const expectedReferencePrefix = currentUserId + '/background-references/';
+    if (rawEnvironmentPaths.some((path: string) => !path.startsWith(expectedReferencePrefix))) {
+      return NextResponse.json({ error: 'Invalid environment reference path' }, { status: 403 });
+    }
+    const environmentReferenceDataUrls = await Promise.all(rawEnvironmentPaths.map((path: string) => downloadAsDataUrl(path)));
     const loadedCharacters = await Promise.all(normalizedCharacterIds.map((id) => getAppCharacterById(id, true)));
     const missingIds = normalizedCharacterIds.filter((id, index) => !loadedCharacters[index]);
     if (missingIds.length > 0) return NextResponse.json({ error: `Character not found: ${missingIds.join(', ')}` }, { status: 404 });
@@ -141,6 +160,27 @@ export async function POST(req: NextRequest) {
     if (!profile) return NextResponse.json({ error: 'User profile not initialized' }, { status: 403 });
 
     const isPaid = profile.plan === 'paid' || profile.plan === 'admin';
+    let libraryEnvironmentReferenceDataUrls: string[] = [];
+    if (rawEnvironmentIds.length > 0) {
+      const { data: backgroundRows, error: backgroundRowsError } = await supabase
+        .from('generated_images')
+        .select('id, storage_path')
+        .eq('owner_id', currentUserId)
+        .eq('generation_type', 'background')
+        .in('id', rawEnvironmentIds);
+      if (backgroundRowsError) {
+        console.error('Environment reference lookup error:', backgroundRowsError);
+        return NextResponse.json({ error: 'Unable to load selected background references. Apply the background generation migration first.' }, { status: 500 });
+      }
+      if (!backgroundRows || backgroundRows.length !== rawEnvironmentIds.length) {
+        return NextResponse.json({ error: 'One or more selected background references were not found.' }, { status: 404 });
+      }
+      libraryEnvironmentReferenceDataUrls = await Promise.all(backgroundRows.map((row) => downloadAsDataUrl(row.storage_path)));
+    }
+    const backgroundReferenceImages = [...environmentReferenceDataUrls, ...libraryEnvironmentReferenceDataUrls].map((dataUrl) => {
+      const match = String(dataUrl).match(/^data:(image\\/[^;]+);base64,(.+)$/);
+      return { mimeType: match?.[1] || 'image/jpeg', data: match?.[2] || '' };
+    });
     const compareStyleKey = isPaid ? requestedCompareStyleKey : null;
     const intensity = isPaid ? clampIntensity(styleIntensity) : 65;
     const requestedShotTemplate = String(scenePackage?.shotTemplate || 'establishing-wide').trim() as ShotTemplate;
@@ -189,7 +229,8 @@ export async function POST(req: NextRequest) {
       style: styleKey,
       styleIntensity: intensity,
       camera: cameraKeyForUser,
-      backgroundReference: Boolean(backgroundReferenceDataUrl),
+      backgroundReference: Boolean(backgroundReferenceDataUrl || backgroundReferenceImages.length),
+      backgroundOnly,
     };
 
     const locationFingerprintSource = normalizedScenePackage
@@ -225,7 +266,7 @@ export async function POST(req: NextRequest) {
     }
 
     reservedCredits = creditCost;
-    const prompt = isMultiCharacter ? buildFinalPromptMulti(characterDNAList, scene) : buildFinalPrompt(characterDNAList[0], scene);
+    const prompt = backgroundOnly ? buildBackgroundOnlyPrompt(scene) : isMultiCharacter ? buildFinalPromptMulti(characterDNAList, scene) : buildFinalPrompt(characterDNAList[0], scene);
     const referenceImages = selectBalancedReferenceImages(charactersForGeneration);
     const generationIdA = uuidv4();
     const generationIdB = compareStyleKey ? uuidv4() : null;
@@ -242,8 +283,9 @@ export async function POST(req: NextRequest) {
       const { error: insertError } = await supabase.from('generated_images').insert({
         id: generationId,
         owner_id: currentUserId,
-        character_id: normalizedCharacterIds[0],
+        character_id: normalizedCharacterIds[0] || null,
         character_ids: normalizedCharacterIds,
+        generation_type: backgroundOnly ? 'background' : 'character',
         storage_path: storagePath,
         prompt: recordPrompt,
         style: recordStyle,
@@ -276,6 +318,7 @@ export async function POST(req: NextRequest) {
             };
           })()
         : undefined,
+      backgroundReferenceImages,
     });
     if (!generatedA.imageBase64) throw new Error('Gemini returned no image data');
     const savedA = await saveGeneratedRecord(
@@ -291,7 +334,7 @@ export async function POST(req: NextRequest) {
 
     if (compareStyleKey) {
       const compareScene: SceneInput = { ...scene, style: compareStyleKey };
-      const comparePrompt = isMultiCharacter ? buildFinalPromptMulti(characterDNAList, compareScene) : buildFinalPrompt(characterDNAList[0], compareScene);
+      const comparePrompt = backgroundOnly ? buildBackgroundOnlyPrompt(compareScene) : isMultiCharacter ? buildFinalPromptMulti(characterDNAList, compareScene) : buildFinalPrompt(characterDNAList[0], compareScene);
       const generatedB = await generateImageInteraction({
         prompt: comparePrompt,
         additionalImages: referenceImages.map((dataUrl) => {
@@ -309,6 +352,7 @@ export async function POST(req: NextRequest) {
               };
             })()
           : undefined,
+        backgroundReferenceImages,
       });
       let imagePathB = null;
       if (!generatedB.imageBase64 || !generationIdB) throw new Error('Gemini returned no comparison image data');
@@ -327,7 +371,7 @@ export async function POST(req: NextRequest) {
         status: 'success',
         provider: 'gemini',
         credits: reservedCredits,
-        metadata: { characterIds: normalizedCharacterIds, compare: true, generationIdA, generationIdB },
+        metadata: { characterIds: normalizedCharacterIds, generationType: backgroundOnly ? 'background' : 'character', compare: true, generationIdA, generationIdB },
       });
       return NextResponse.json({ ok: true, imagePath, imagePathB, image: imagePath, compareImage: imagePathB, generationId: generationIdA, compareGenerationId: generationIdB, prompt, comparePrompt, characterIds: normalizedCharacterIds, aspectRatio: aspectRatioKey, style: styleKey, compareStyle: compareStyleKey, locationProfileId: normalizedScenePackage?.locationProfileId, locationFingerprint, creditCost: reservedCredits });
     }
@@ -337,7 +381,7 @@ export async function POST(req: NextRequest) {
       status: 'success',
       provider: 'gemini',
       credits: reservedCredits,
-      metadata: { characterIds: normalizedCharacterIds, compare: false, generationId: generationIdA },
+      metadata: { characterIds: normalizedCharacterIds, generationType: backgroundOnly ? 'background' : 'character', compare: false, generationId: generationIdA },
     });
     if (eventError) console.error('Generation event log error:', eventError);
 
