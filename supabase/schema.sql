@@ -164,9 +164,15 @@ create policy "own_generation_events_select" on public.generation_events for sel
 
 drop policy if exists "owned_generated_images_select" on public.generated_images;
 create policy "owned_generated_images_select" on public.generated_images for select using (owner_id = auth.uid());
+grant select, insert, update, delete on public.preset_catalog to authenticated;
+
+drop policy if exists "preset_catalog_authenticated_select" on public.preset_catalog;
 create policy "preset_catalog_authenticated_select" on public.preset_catalog for select to authenticated using (auth.uid() is not null);
+drop policy if exists "preset_catalog_admin_insert" on public.preset_catalog;
 create policy "preset_catalog_admin_insert" on public.preset_catalog for insert to authenticated with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
+drop policy if exists "preset_catalog_admin_update" on public.preset_catalog;
 create policy "preset_catalog_admin_update" on public.preset_catalog for update to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin')) with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
+drop policy if exists "preset_catalog_admin_delete" on public.preset_catalog;
 create policy "preset_catalog_admin_delete" on public.preset_catalog for delete to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
 
 
