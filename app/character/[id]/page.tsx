@@ -314,28 +314,26 @@ export default function CharacterDetailPage() {
     if (typeof snapshot.compareStyle === 'string') setCompareStyle(snapshot.compareStyle);
     if (snapshot.generationMode === 'character' || snapshot.generationMode === 'background') setGenerationMode(snapshot.generationMode);
 
-    if (Array.isArray(snapshot.environmentReferences)) {
-      const references = snapshot.environmentReferences.filter((item) => item && typeof item.path === 'string' && typeof item.name === 'string');
-      void Promise.all(references.map(async (item) => {
-        try {
-          const response = await fetch('/api/generate/background-reference?path=' + encodeURIComponent(item.path), { cache: 'no-store' });
-          const data = await response.json();
-          if (!response.ok || !data?.url) return null;
-          return { path: item.path, name: item.name, url: String(data.url) };
-        } catch { return null; }
-      })).then((loaded) => setEnvironmentReferenceImages(loaded.filter((item): item is { path: string; name: string; url: string } => Boolean(item))));
-    }
+    const references = Array.isArray(snapshot.environmentReferences)
+      ? snapshot.environmentReferences.filter((item) => item && typeof item.path === 'string' && typeof item.name === 'string')
+      : [];
+    setEnvironmentReferenceImages([]);
+    void Promise.all(references.map(async (item) => {
+      try {
+        const response = await fetch('/api/generate/background-reference?path=' + encodeURIComponent(item.path), { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data?.url) return null;
+        return { path: item.path, name: item.name, url: String(data.url) };
+      } catch { return null; }
+    })).then((loaded) => setEnvironmentReferenceImages(loaded.filter((item): item is { path: string; name: string; url: string } => Boolean(item))));
 
-    if (snapshot.selectedLibraryBackgroundId !== undefined) {
-      const selectedId = snapshot.selectedLibraryBackgroundId;
-      if (!selectedId) {
-        setSelectedLibraryBackground(null);
-      } else {
-        void fetch('/api/generated/backgrounds/list', { cache: 'no-store' })
-          .then((response) => response.json())
-          .then((data) => setSelectedLibraryBackground((data.images || []).find((item: LibraryBackground) => item.id === selectedId) || null))
-          .catch(() => setSelectedLibraryBackground(null));
-      }
+    const selectedId = snapshot.selectedLibraryBackgroundId || null;
+    setSelectedLibraryBackground(null);
+    if (selectedId) {
+      void fetch('/api/generated/backgrounds/list', { cache: 'no-store' })
+        .then((response) => response.json())
+        .then((data) => setSelectedLibraryBackground((data.images || []).find((item: LibraryBackground) => item.id === selectedId) || null))
+        .catch(() => setSelectedLibraryBackground(null));
     }
   };
 
