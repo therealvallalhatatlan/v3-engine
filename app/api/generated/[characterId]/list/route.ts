@@ -37,6 +37,28 @@ export async function GET(req: NextRequest, { params }: { params: { characterId:
     3600,
   );
 
+  const signedUrlCount = Object.keys(signedUrls).length;
+  const unavailableCount = matches.filter((image) => !signedUrls[image.storage_path]).length;
+  if (matches.length > 0 && signedUrlCount === 0) {
+    console.error('Gallery images matched but no signed URLs were produced:', {
+      characterId,
+      matchedCount: matches.length,
+    });
+    return NextResponse.json(
+      { error: 'A képek megtalálhatók, de a tárhelyről nem sikerült előállítani a megnyitásukhoz szükséges linkeket.' },
+      { status: 502 },
+    );
+  }
+
+  if (unavailableCount > 0) {
+    console.warn('Some gallery images have no signed URL:', {
+      characterId,
+      matchedCount: matches.length,
+      signedUrlCount,
+      unavailableCount,
+    });
+  }
+
   const images = matches
     .map((image) => {
       const url = signedUrls[image.storage_path];
@@ -66,5 +88,5 @@ export async function GET(req: NextRequest, { params }: { params: { characterId:
     })
     .filter(Boolean);
 
-  return NextResponse.json({ images });
+  return NextResponse.json({ images, unavailableCount });
 }
