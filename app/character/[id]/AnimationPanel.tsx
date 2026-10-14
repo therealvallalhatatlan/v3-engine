@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export interface ImageInfo {
+  id?: string;
   filename: string;
   url: string;
   created: number;
