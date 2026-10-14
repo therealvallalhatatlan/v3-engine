@@ -129,8 +129,19 @@ Built-in styles currently include:
 - `dreamy-ethereal`
 - `graphic-novel`
 - `police-speed-photo`
+- `paper-ghost-photo` — monochrome photo dissolving into white page
+- `xerox-apparition` — damaged photocopy / documentary evidence
+- `white-noise-veil` — airy monochrome apparition
 
 The selected style can be combined with a numeric intensity value from `0` to `100`.
+
+### Standalone background generation
+
+The character workspace supports a real `0 character` mode. It uses a location-first prompt without character DNA, accepts up to six environmental reference images, and stores finished environments in a private Background Library. A saved background can later be selected as an environment reference for a character scene.
+
+### Durable generation recipes
+
+Generation recipes are stored per user in Supabase (`public.generation_presets`) with global and per-character scopes. A recipe preserves location, lighting, camera, aspect ratio, style, continuity flags, generation mode and environmental reference selections. Existing browser-local recipes are imported when a matching recipe is not yet present in Supabase.
 
 ### Dynamic preset manager
 
@@ -159,6 +170,8 @@ Each custom preset has:
 - `negative` - optional style-specific negative prompt
 
 Custom presets are stored in the shared Supabase table `public.preset_catalog` when deployed. The legacy `<STORAGE_DIR>/presets.json` file is used only as a local-development fallback and can be imported by an admin on first load.
+
+The Supabase table is seeded with built-in presets on the first admin load. Shared preset mutations are admin-only and are enforced by both the API and row-level security.
 
 The generator loads them at runtime. Creating a new preset therefore does not require a source-code change or a new preset type declaration.
 
