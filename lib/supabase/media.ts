@@ -54,13 +54,49 @@ export async function createSignedMediaUrls(paths: string[], expiresIn = 3600): 
   if (!uniquePaths.length) return {};
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrls(uniquePaths, expiresIn);
-  if (error) throw new Error(`Unable to sign media URLs: ${error.message}`);
-
   const result: Record<string, string> = {};
-  for (const item of data || []) {
-    if (item?.path && item?.signedUrl) result[String(item.path)] = String(item.signedUrl);
+  // Storage's signed-URL endpoint can fail for large batches. Keep requests small
+  // so a character with hundreds of generated images still gets a usable gallery.
+  const batchSize = 50;
+
+  for (let offset = 0; offset < uniquePaths.length; offset += batchSize) {
+    const batch = uniquePaths.slice(offset, offset + batchSize);
+    try {
+      const { data, error } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrls(batch, expiresIn);
+      if (error) {
+        console.error('Unable to sign media URL batch:', {
+          offset,
+          count: batch.length,
+          message: error.message,
+        });
+        continue;
+      }
+
+      const signedInBatch = new Set<string>();
+      for (const item of data || []) {
+        if (item?.path && item?.signedUrl) {
+          const path = String(item.path);
+          result[path] = String(item.signedUrl);
+          signedInBatch.add(path);
+        }
+      }
+
+      if (signedInBatch.size < batch.length) {
+        console.warn('Some media URLs could not be signed:', {
+          offset,
+          requested: batch.length,
+          signed: signedInBatch.size,
+        });
+      }
+    } catch (error: any) {
+      console.error('Unable to sign media URL batch:', {
+        offset,
+        count: batch.length,
+        message: error?.message || 'Unknown storage error',
+      });
+    }
   }
+
   return result;
 }
 
