@@ -499,19 +499,44 @@ export default function CharacterDetailPage() {
 
   useEffect(() => {
     if (!primaryCharacterId) return;
+    let canceled = false;
     hydratedRef.current = false;
-    setCharacterPresets(loadPresets('character', primaryCharacterId));
-    const globals = loadPresets('global');
-    setGlobalPresets(globals);
+    setCharacterPresets([]);
+    setGlobalPresets([]);
+
     const savedForm = parseStoredJson<GenerateFormState>(getCharacterFormKey(primaryCharacterId));
     if (savedForm) {
-      applyFormSnapshot(savedForm); setStorageInfo('Loaded last settings for this character.');
-    } else {
-      const defaultId = localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY);
-      const defaultPreset = defaultId ? globals.find((item) => item.id === defaultId) : undefined;
-      if (defaultPreset) { applyFormSnapshot(defaultPreset.data); setSelectedGlobalPresetId(defaultPreset.id); setStorageInfo(`Loaded global default preset: ${defaultPreset.name}`); }
+      applyFormSnapshot(savedForm);
+      setStorageInfo('A karakter utolsó beállításai betöltve.');
     }
-    hydratedRef.current = true;
+
+    void (async () => {
+      try {
+        const [characters, globals] = await Promise.all([
+          fetchGenerationPresets('character', primaryCharacterId),
+          fetchGenerationPresets('global'),
+        ]);
+        if (canceled) return;
+        setCharacterPresets(characters);
+        setGlobalPresets(globals);
+
+        if (!savedForm) {
+          const defaultId = localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY);
+          const defaultPreset = defaultId ? globals.find((item) => item.id === defaultId) : undefined;
+          if (defaultPreset) {
+            applyFormSnapshot(defaultPreset.data);
+            setSelectedGlobalPresetId(defaultPreset.id);
+            setStorageInfo(`Alapértelmezett recept betöltve: ${defaultPreset.name}`);
+          }
+        }
+      } catch (loadError: any) {
+        if (!canceled) setStorageInfo(loadError?.message || 'A receptek betöltése sikertelen.');
+      } finally {
+        if (!canceled) hydratedRef.current = true;
+      }
+    })();
+
+    return () => { canceled = true; };
   }, [primaryCharacterId]);
 
   useEffect(() => {
