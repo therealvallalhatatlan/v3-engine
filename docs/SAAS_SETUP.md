@@ -75,7 +75,7 @@ These defaults can be overridden with CREDIT_PACKAGES_JSON in the deployment env
 
 ## 6. Persisted generation tools
 
-The canonical `supabase/schema.sql` includes the shared preset catalog (`preset_catalog`), per-user saved generation recipes (`generation_presets`), persistent video jobs (`video_jobs`), and the atomic video concurrency function. If you deploy using incremental migrations rather than the canonical schema, apply all migrations under `supabase/migrations` in chronological order. Do not run only the legacy video migration without the newer `video_concurrency_guard` and `video_jobs_restrict_inserts` migrations.
+The canonical `supabase/schema.sql` includes the shared preset catalog (`preset_catalog`), per-user saved generation recipes (`generation_presets`), persistent video jobs (`video_jobs`), and the atomic video concurrency function. If you deploy using incremental migrations rather than the canonical schema, apply all migrations under `supabase/migrations` in chronological order. Do not run only the legacy video migration without the newer `video_concurrency_guard` and `video_jobs_restrict_inserts` migrations. For an existing live deployment, apply the schema/preset/concurrency migrations first, deploy the application revision that creates video jobs through the RPC, and only then apply `20261014010400_video_jobs_restrict_inserts.sql`; it removes the direct-insert policy used by older application revisions.
 
 ## 7. Stripe credit purchases
 
