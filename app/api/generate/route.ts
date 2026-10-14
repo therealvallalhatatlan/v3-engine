@@ -5,6 +5,7 @@ import { buildCharacterDNAFromCharacter } from '../../../lib/promptBuilder';
 import { AspectRatio16x9, LocationPreset, SceneInput, ScenePackageInput, ShotTemplate } from '../../../types/prompt';
 import { normalizeToPromptEnglish } from '../../../lib/sceneMapper';
 import { getPreset } from '../../../lib/presetStore';
+import { loadPresetCatalogFromSupabase } from '../../../lib/supabase/presets';
 import { createSupabaseServerClient, getCurrentUser } from '../../../lib/supabase/server';
 import { getAppCharacterById } from '../../../lib/supabase/characters';
 import { saveGeneratedImageToSupabase, shouldAddWatermark } from '../../../lib/supabase/generation';
@@ -140,6 +141,22 @@ export async function POST(req: NextRequest) {
     if (missingIds.length > 0) return NextResponse.json({ error: `Character not found: ${missingIds.join(', ')}` }, { status: 404 });
     const charactersForGeneration = loadedCharacters.map((character) => textOnly ? { ...character!, imagePaths: [] } : character!);
 
+    const supabase = await createSupabaseServerClient();
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('plan, generation_credits')
+      .eq('id', currentUserId)
+      .maybeSingle();
+    if (profileError) return NextResponse.json({ error: 'Unable to load user profile' }, { status: 500 });
+    if (!profile) return NextResponse.json({ error: 'User profile not initialized' }, { status: 403 });
+
+    try {
+      await loadPresetCatalogFromSupabase(supabase, { seedIfNeeded: profile.plan === 'admin' });
+    } catch (presetError: any) {
+      console.error('Preset catalog unavailable:', presetError);
+      return NextResponse.json({ error: 'A presetkatalógus nem érhető el. Próbáld újra később.' }, { status: 503 });
+    }
+
     let cameraKey = String(camera || 'wide');
     if (cameraKey === 'close-up') cameraKey = 'closeup';
     if (!getPreset('camera', cameraKey)) cameraKey = 'wide';
@@ -149,15 +166,6 @@ export async function POST(req: NextRequest) {
     const requestedCompareStyle = String(compareStyle || '').trim();
     const requestedCompareStyleKey = getPreset('style', requestedCompareStyle) ? requestedCompareStyle : null;
     const aspectRatioKey = ALLOWED_ASPECT_RATIOS.includes(aspectRatio as AspectRatio16x9) ? aspectRatio as AspectRatio16x9 : 'landscape-16-9';
-
-    const supabase = await createSupabaseServerClient();
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('plan, generation_credits')
-      .eq('id', currentUserId)
-      .maybeSingle();
-    if (profileError) return NextResponse.json({ error: 'Unable to load user profile' }, { status: 500 });
-    if (!profile) return NextResponse.json({ error: 'User profile not initialized' }, { status: 403 });
 
     const isPaid = profile.plan === 'paid' || profile.plan === 'admin';
     let libraryEnvironmentReferenceDataUrls: string[] = [];
