@@ -4,10 +4,30 @@ import { createSupabaseServerClient, getCurrentUser } from '../../../../lib/supa
 import { getAppCharacterById } from '../../../../lib/supabase/characters';
 import { createVideoJob, updateVideoJob } from '../../../../lib/supabase/videoJobs';
 
-function normalizeDuration(value: unknown): number {
+function normalizeDuration(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return 5;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 5;
-  return Math.max(1, Math.min(20, Math.round(parsed)));
+  if (!Number.isFinite(parsed)) return null;
+  const normalized = Math.round(parsed);
+  return [5, 8, 10, 15, 20].includes(normalized) && normalized === parsed ? normalized : null;
+}
+
+function isOwnedGeneratedImageUrl(value: unknown, userId: string): boolean {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const configuredSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  if (!configuredSupabaseUrl) return false;
+
+  try {
+    const candidate = new URL(value);
+    const trustedOrigin = new URL(configuredSupabaseUrl).origin;
+    const decodedPath = decodeURIComponent(candidate.pathname);
+    const requiredPrefix = `/storage/v1/object/sign/v3-media/${userId}/generated/`;
+    return candidate.origin === trustedOrigin
+      && decodedPath.startsWith(requiredPrefix)
+      && Boolean(candidate.searchParams.get('token'));
+  } catch {
+    return false;
+  }
 }
 
 function resolveLocalSourceToDataUrl(sourceImageUrl: string): string {
@@ -71,6 +91,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'prompt is too short' }, { status: 400 });
     }
 
+    if (!isOwnedGeneratedImageUrl(sourceImageUrl, user.id)) {
+      return NextResponse.json({ error: 'A videó forrása csak a saját generált képeid közül választható.' }, { status: 403 });
+    }
+    if (lastFrameImageUrl && !isOwnedGeneratedImageUrl(lastFrameImageUrl, user.id)) {
+      return NextResponse.json({ error: 'A záróképkockának is a saját generált képeid közül kell származnia.' }, { status: 403 });
+    }
+
     if (lastFrameImageUrl !== undefined && typeof lastFrameImageUrl !== 'string') {
       return NextResponse.json(
         { error: 'lastFrameImageUrl must be a string when provided' },
@@ -83,9 +110,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Character not found' }, { status: 404 });
     }
 
+    const duration = normalizeDuration(durationSeconds);
+    if (duration === null) {
+      return NextResponse.json({ error: 'A videó hossza 5, 8, 10, 15 vagy 20 másodperc lehet.' }, { status: 400 });
+    }
+
+    const { count: activeJobs, error: activeJobsError } = await supabase
+      .from('video_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .in('status', ['queued', 'processing']);
+    if (activeJobsError) {
+      console.error('Video concurrency check failed:', activeJobsError);
+      return NextResponse.json({ error: 'Nem sikerült ellenőrizni a futó videófeladatokat.' }, { status: 500 });
+    }
+    if ((activeJobs || 0) >= 2) {
+      return NextResponse.json({ error: 'Egyszerre legfeljebb két videógenerálás futhat. Várd meg, amíg az egyik befejeződik.' }, { status: 429 });
+    }
+
     const providerName = 'replicate';
     const provider = getAnimationProvider(providerName);
-    const duration = normalizeDuration(durationSeconds);
     const normalizedCharacterIds = Array.isArray(characterIds)
       ? Array.from(
           new Set(
