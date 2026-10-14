@@ -15,43 +15,22 @@ export async function GET(req: NextRequest, { params }: { params: { characterId:
 
   const supabase = await createSupabaseServerClient();
 
-  const columns = 'id, owner_id, character_id, character_ids, storage_path, prompt, style, camera, aspect_ratio, variant, credit_cost, parent_generation_id, edit_session_id, edit_instruction, edit_response, edit_index, created_at';
+  const query = supabase
+    .from('generated_images')
+    .select('id, owner_id, character_id, character_ids, storage_path, prompt, style, camera, aspect_ratio, variant, credit_cost, parent_generation_id, edit_session_id, edit_instruction, edit_response, edit_index, created_at')
+    .eq('owner_id', user.id)
+    .order('created_at', { ascending: false });
 
-  let matches: any[] = [];
-  if (duoWith) {
-    const { data, error } = await supabase
-      .from('generated_images')
-      .select(columns)
-      .eq('owner_id', user.id)
-      .contains('character_ids', [characterId, duoWith])
-      .order('created_at', { ascending: false });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    matches = data || [];
-  } else {
-    const [primaryResult, linkedResult] = await Promise.all([
-      supabase
-        .from('generated_images')
-        .select(columns)
-        .eq('owner_id', user.id)
-        .eq('character_id', characterId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('generated_images')
-        .select(columns)
-        .eq('owner_id', user.id)
-        .contains('character_ids', [characterId])
-        .order('created_at', { ascending: false }),
-    ]);
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (primaryResult.error) return NextResponse.json({ error: primaryResult.error.message }, { status: 500 });
-    if (linkedResult.error) return NextResponse.json({ error: linkedResult.error.message }, { status: 500 });
-
-    const unique = new Map<string, any>();
-    for (const image of [...(primaryResult.data || []), ...(linkedResult.data || [])]) {
-      unique.set(String(image.id), image);
-    }
-    matches = Array.from(unique.values()).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }
+  const matches = (data || []).filter((image) => {
+    const ids = Array.isArray(image.character_ids) ? image.character_ids.map(String) : [];
+    const primaryMatch = String(image.character_id) === characterId || ids.includes(characterId);
+    if (!primaryMatch) return false;
+    if (duoWith) return ids.includes(duoWith);
+    return true;
+  });
 
   const signedUrls = await createSignedMediaUrls(
     matches.map((image) => image.storage_path),
