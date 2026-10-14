@@ -50,29 +50,29 @@ export async function createVideoJob(input: {
   provider: string;
 }): Promise<AnimationJob> {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from('video_jobs')
-    .insert({
-      user_id: input.userId,
-      character_id: input.characterId,
-      character_ids: input.characterIds || [],
-      duo_key: input.duoKey || null,
-      source_image_url: input.sourceImageUrl,
-      last_frame_image_url: input.lastFrameImageUrl || null,
-      prompt: input.prompt,
-      duration_seconds: input.durationSeconds,
-      provider: input.provider,
-      status: 'queued',
-      started_at: new Date().toISOString(),
-    })
-    .select('*')
-    .single<VideoJobRow>();
+  const { data, error } = await supabase.rpc('create_video_job_if_available', {
+    p_user_id: input.userId,
+    p_character_id: input.characterId,
+    p_character_ids: input.characterIds || [],
+    p_duo_key: input.duoKey || null,
+    p_source_image_url: input.sourceImageUrl,
+    p_last_frame_image_url: input.lastFrameImageUrl || null,
+    p_prompt: input.prompt,
+    p_duration_seconds: input.durationSeconds,
+    p_provider: input.provider,
+    p_max_active: 2,
+  });
 
-  if (error || !data) {
-    throw new Error(error?.message || 'Unable to create video job');
+  if (error) {
+    if (String(error.message || '').includes('video_job_limit_reached')) {
+      throw new Error('video_job_limit_reached');
+    }
+    throw new Error(error.message || 'Unable to reserve a video generation slot');
   }
 
-  return toAnimationJob(data, undefined);
+  const row = (Array.isArray(data) ? data[0] : data) as VideoJobRow | null;
+  if (!row) throw new Error('Unable to create video job');
+  return toAnimationJob(row, undefined);
 }
 
 export async function getVideoJob(
