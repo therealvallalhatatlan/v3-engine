@@ -922,7 +922,8 @@ export default function CharacterDetailPage() {
 
   const removeExtraCharacter = (id: string) => setExtraCharacterIds((prev) => prev.filter((value) => value !== id));
   const handleUseForAnimation = (image: ImageInfo) => {
-    // Keep the complete gallery record: signed image URLs can differ between requests.
+    // Gallery and the page can sign the same storage object with different temporary URLs.
+    // Keep the exact gallery object in this list so the video panel can render and select it.
     setGeneratedImages((current) => [
       image,
       ...current.filter((existing) =>
@@ -932,6 +933,7 @@ export default function CharacterDetailPage() {
     setAnimatePreselectedUrl(image.url);
     setActiveTab('animate');
   };
+
   const handleUseBackgroundAsReference = (image: LibraryBackground) => { setSelectedLibraryBackground(image); setGenerationMode('character'); setActiveTab('generate'); };
 
   const locationPresetCount = useMemo(() => locationPresetOptions.length, [locationPresetOptions]);
