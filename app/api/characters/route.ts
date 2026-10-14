@@ -36,27 +36,12 @@ export async function POST(req: NextRequest) {
   const isAdmin = profile.plan === 'admin';
   let slotReserved = false;
 
-  if (!isAdmin) {
-    if ((profile.character_slots ?? 0) <= 0) {
-      return NextResponse.json({ error: 'No character slots available.' }, { status: 403 });
-    }
-
-    const { data: reservedSlot, error: reserveSlotError } = await supabase.rpc('reserve_character_slot', {
-      p_user_id: user.id,
-    });
-
-    if (reserveSlotError) {
-      return NextResponse.json({ error: 'Unable to reserve character slot' }, { status: 500 });
-    }
-
-    if (!reservedSlot) {
-      return NextResponse.json({ error: 'No character slots available.' }, { status: 403 });
-    }
-
-    slotReserved = true;
+  let data: any;
+  try {
+    data = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
-
-  const data = await req.json();
   const { name, description, traits, imageUrls, imagePaths } = data;
   const id = String(data?.id || uuidv4()).trim();
   const userReferencePrefix = `${user.id}/characters/${id}/references/`;
@@ -84,6 +69,29 @@ export async function POST(req: NextRequest) {
 
   if (character.imagePaths.length > 5) {
     return NextResponse.json({ error: 'Maximum 5 reference images allowed.' }, { status: 400 });
+  }
+
+
+  // Reserve the slot only after request data is fully validated, so early 4xx
+  // responses cannot silently consume a character slot.
+  if (!isAdmin) {
+    if ((profile.character_slots ?? 0) <= 0) {
+      return NextResponse.json({ error: 'No character slots available.' }, { status: 403 });
+    }
+
+    const { data: reservedSlot, error: reserveSlotError } = await supabase.rpc('reserve_character_slot', {
+      p_user_id: user.id,
+    });
+
+    if (reserveSlotError) {
+      return NextResponse.json({ error: 'Unable to reserve character slot' }, { status: 500 });
+    }
+
+    if (!reservedSlot) {
+      return NextResponse.json({ error: 'No character slots available.' }, { status: 403 });
+    }
+
+    slotReserved = true;
   }
 
   const { error } = await supabase.from('characters').insert({
