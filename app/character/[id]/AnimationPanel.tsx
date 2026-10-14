@@ -188,9 +188,9 @@ export default function AnimationPanel({
 
   const visiblePickerImages = images;
   const activeJobs = jobs.filter((job) => job.status === 'queued' || job.status === 'processing');
-  const finishedJobs = jobs.filter(
-    (job) => job.status === 'done' || job.status === 'failed' || job.status === 'canceled',
-  );
+  const finishedJobs = jobs
+    .filter((job) => job.status === 'done' || job.status === 'failed' || job.status === 'canceled')
+    .sort((a, b) => b.createdAt - a.createdAt);
 
   const submitAnimation = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -268,7 +268,6 @@ export default function AnimationPanel({
       window.setTimeout(() => {
         const video = document.getElementById(`video-${job.jobId}`);
         if (video instanceof HTMLVideoElement) {
-          video.scrollIntoView({ behavior: 'smooth', block: 'center' });
           void video.play().catch(() => undefined);
         }
       }, 50);
@@ -295,8 +294,9 @@ export default function AnimationPanel({
   }, [jobs]);
 
   return (
-    <div className="space-y-6">
-      <div className="border-b border-gray-800 pb-4">
+    <div className="space-y-6 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:space-y-3 xl:overflow-hidden">
+      <div className="shrink-0 border-b border-gray-800 pb-3">
+
         <div className="text-[11px] uppercase tracking-[0.22em] text-gray-600">VIDEO ENGINE</div>
         <h2 className="mt-1 text-2xl font-bold tracking-tight text-white">Videó készítése</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
@@ -305,6 +305,8 @@ export default function AnimationPanel({
         </p>
       </div>
 
+      <div className="xl:grid xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(400px,0.72fr)_minmax(0,1.28fr)] xl:gap-4">
+        <section className="space-y-4 xl:min-h-0 xl:overflow-y-auto xl:pr-2">
       {images.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-800 bg-black/30 p-8 text-center">
           <div className="text-sm font-semibold text-gray-300">Még nincs használható kép.</div>
@@ -531,6 +533,68 @@ export default function AnimationPanel({
         </>
       )}
 
+        </section>
+        <section className="mt-4 space-y-4 xl:mt-0 xl:min-h-0 xl:overflow-y-auto xl:pr-2">
+      {finishedJobs.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-gray-600">KÉSZ VIDEÓK</div>
+            <h3 className="text-base font-semibold text-white">Eredmények</h3>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {finishedJobs.map((job) => (
+              <article key={job.jobId} className="overflow-hidden rounded-2xl border border-gray-800 bg-zinc-950">
+                {job.status === 'done' && job.videoUrl ? (
+                  <video
+                    id={`video-${job.jobId}`}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="aspect-video w-full bg-black"
+                    src={job.videoUrl}
+                  />
+                ) : (
+                  <div className="flex aspect-video items-center justify-center bg-black px-6 text-center">
+                    <div>
+                      <div className={`mx-auto inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold ${statusBadgeClass(job.status)}`}>
+                        {statusLabel(job.status)}
+                      </div>
+                      {job.error && (
+                        <div className="mt-3 max-w-md text-xs leading-5 text-red-300">{job.error}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${statusBadgeClass(job.status)}`}>
+                      {statusLabel(job.status)}
+                    </span>
+                    <span className="text-[10px] text-gray-600">{job.durationSeconds}s</span>
+                    <span className="text-[10px] text-gray-600">{relativeTime(job.createdAt)}</span>
+                  </div>
+
+                  <div className="mt-2 text-sm leading-6 text-gray-300">{jobPrompt(job)}</div>
+
+                  {job.status === 'done' && job.videoUrl && (
+                    <a
+                      href={job.videoUrl}
+                      download={`video-${job.jobId}.mp4`}
+                      className="mt-4 inline-flex rounded-lg border border-gray-700 px-3 py-2 text-xs font-semibold text-white transition hover:border-gray-500 hover:bg-zinc-900"
+                    >
+                      Videó letöltése
+                    </a>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+
       {activeJobs.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-end justify-between">
@@ -592,70 +656,17 @@ export default function AnimationPanel({
         </section>
       )}
 
-      {finishedJobs.length > 0 && (
-        <section className="space-y-3">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-gray-600">KÉSZ VIDEÓK</div>
-            <h3 className="text-base font-semibold text-white">Eredmények</h3>
+      {jobs.length === 0 && (
+        <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-gray-800 px-6 py-10 text-center xl:min-h-[360px]">
+          <div className="max-w-md">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-gray-800 bg-black text-2xl">▶</div>
+            <div className="text-sm font-semibold text-gray-300">A generált videó itt jelenik meg</div>
+            <p className="mt-2 text-xs leading-5 text-gray-600">{images.length > 0 ? "Válassz képkockát és indítsd el a videógenerálást. Az elkészült videó ezen a panelen lesz lejátszható." : "Először készíts egy képet a Generálás fülön, majd itt videóvá alakíthatod."}</p>
           </div>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {finishedJobs.map((job) => (
-              <article key={job.jobId} className="overflow-hidden rounded-2xl border border-gray-800 bg-zinc-950">
-                {job.status === 'done' && job.videoUrl ? (
-                  <video
-                    id={`video-${job.jobId}`}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="aspect-video w-full bg-black"
-                    src={job.videoUrl}
-                  />
-                ) : (
-                  <div className="flex aspect-video items-center justify-center bg-black px-6 text-center">
-                    <div>
-                      <div className={`mx-auto inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold ${statusBadgeClass(job.status)}`}>
-                        {statusLabel(job.status)}
-                      </div>
-                      {job.error && (
-                        <div className="mt-3 max-w-md text-xs leading-5 text-red-300">{job.error}</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${statusBadgeClass(job.status)}`}>
-                      {statusLabel(job.status)}
-                    </span>
-                    <span className="text-[10px] text-gray-600">{job.durationSeconds}s</span>
-                    <span className="text-[10px] text-gray-600">{relativeTime(job.createdAt)}</span>
-                  </div>
-
-                  <div className="mt-2 text-sm leading-6 text-gray-300">{jobPrompt(job)}</div>
-
-                  {job.status === 'done' && job.videoUrl && (
-                    <a
-                      href={job.videoUrl}
-                      download={`video-${job.jobId}.mp4`}
-                      className="mt-4 inline-flex rounded-lg border border-gray-700 px-3 py-2 text-xs font-semibold text-white transition hover:border-gray-500 hover:bg-zinc-900"
-                    >
-                      Videó letöltése
-                    </a>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {jobs.length === 0 && images.length > 0 && (
-        <div className="rounded-xl border border-dashed border-gray-900 px-4 py-6 text-center text-xs text-gray-700">
-          A kész videók itt jelennek meg.
         </div>
       )}
+        </section>
+      </div>
     </div>
   );
 }
