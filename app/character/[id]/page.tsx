@@ -125,6 +125,9 @@ const GLOBAL_DEFAULT_PRESET_KEY = `illustration.generate.defaultPreset.${GENERAT
   styleIntensity: number;
   compareMode: boolean;
   compareStyle: string;
+  generationMode: GenerationMode;
+  selectedLibraryBackgroundId: string | null;
+  environmentReferences: Array<{ path: string; name: string }>;
 };
 
 type GenerateFormPreset = { id: string; name: string; updatedAt: number; data: GenerateFormState };
@@ -279,7 +282,9 @@ export default function CharacterDetailPage() {
     location, lighting, locationPreset, locationGeometry, locationPalette, locationProps,
     locationCameraContinuity, lockGeometry, lockLighting, lockPalette, lockProps, lockCameraRules,
     continuityNotes, actionPrompt, extraCharacterIds, aliasMap, camera, aspectRatio, style, styleIntensity,
-    compareMode, compareStyle,
+    compareMode, compareStyle, generationMode,
+    selectedLibraryBackgroundId: selectedLibraryBackground?.id || null,
+    environmentReferences: environmentReferenceImages.map(({ path, name }) => ({ path, name })),
   });
 
   const applyFormSnapshot = (snapshot: Partial<GenerateFormState>) => {
@@ -307,40 +312,123 @@ export default function CharacterDetailPage() {
     if (typeof snapshot.styleIntensity === 'number' && Number.isFinite(snapshot.styleIntensity)) setStyleIntensity(Math.max(0, Math.min(100, Math.round(snapshot.styleIntensity))));
     if (typeof snapshot.compareMode === 'boolean') setCompareMode(snapshot.compareMode);
     if (typeof snapshot.compareStyle === 'string') setCompareStyle(snapshot.compareStyle);
+    if (snapshot.generationMode === 'character' || snapshot.generationMode === 'background') setGenerationMode(snapshot.generationMode);
+
+    if (Array.isArray(snapshot.environmentReferences)) {
+      const references = snapshot.environmentReferences.filter((item) => item && typeof item.path === 'string' && typeof item.name === 'string');
+      void Promise.all(references.map(async (item) => {
+        try {
+          const response = await fetch('/api/generate/background-reference?path=' + encodeURIComponent(item.path), { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok || !data?.url) return null;
+          return { path: item.path, name: item.name, url: String(data.url) };
+        } catch { return null; }
+      })).then((loaded) => setEnvironmentReferenceImages(loaded.filter((item): item is { path: string; name: string; url: string } => Boolean(item)));
+    }
+
+    if (snapshot.selectedLibraryBackgroundId !== undefined) {
+      const selectedId = snapshot.selectedLibraryBackgroundId;
+      if (!selectedId) {
+        setSelectedLibraryBackground(null);
+      } else {
+        void fetch('/api/generated/backgrounds/list', { cache: 'no-store' })
+          .then((response) => response.json())
+          .then((data) => setSelectedLibraryBackground((data.images || []).find((item: LibraryBackground) => item.id === selectedId) || null))
+          .catch(() => setSelectedLibraryBackground(null));
+      }
+    }
   };
 
-  const loadPresets = (scope: 'character' | 'global', id?: string): GenerateFormPreset[] => {
+  const loadLegacyPresets = (scope: 'character' | 'global', id?: string): GenerateFormPreset[] => {
     const key = scope === 'character' ? getCharacterPresetsKey(id || '') : GLOBAL_PRESETS_KEY;
     if (scope === 'character' && !id) return [];
     const parsed = parseStoredJson<GenerateFormPreset[]>(key);
     return Array.isArray(parsed) ? parsed.filter((item) => item?.id && item.data).sort((a, b) => b.updatedAt - a.updatedAt) : [];
   };
 
-  const savePresets = (scope: 'character' | 'global', presets: GenerateFormPreset[], id?: string) => {
-    const key = scope === 'character' ? getCharacterPresetsKey(id || '') : GLOBAL_PRESETS_KEY;
-    if (scope === 'character' && !id) return;
-    localStorage.setItem(key, JSON.stringify(presets));
-  };
+  const fetchGenerationPresets = async (scope: 'character' | 'global', id?: string): Promise<GenerateFormPreset[]> => {
+    if (scope === 'character' && !id) return [];
+    const query = new URLSearchParams({ scope });
+    if (scope === 'character' && id) query.set('characterId', id);
 
-  const saveNewPreset = (scope: 'character' | 'global') => {
-    const name = presetName.trim() || `Preset ${new Date().toLocaleString()}`;
-    const nextPreset: GenerateFormPreset = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, updatedAt: Date.now(), data: createFormSnapshot() };
-    if (scope === 'character') {
-      const next = [nextPreset, ...characterPresets].slice(0, 30);
-      setCharacterPresets(next); setSelectedCharacterPresetId(nextPreset.id); savePresets(scope, next, primaryCharacterId);
-    } else {
-      const next = [nextPreset, ...globalPresets].slice(0, 30);
-      setGlobalPresets(next); setSelectedGlobalPresetId(nextPreset.id); savePresets(scope, next);
+    const fetchRemote = async () => {
+      const response = await fetch('/api/generation-presets?' + query.toString(), { cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A generálási receptek betöltése sikertelen.');
+      return (Array.isArray(body.presets) ? body.presets : []) as GenerateFormPreset[];
+    };
+
+    let remote = await fetchRemote();
+    const legacy = loadLegacyPresets(scope, id);
+    if (remote.length === 0 && legacy.length > 0) {
+      for (const preset of legacy.slice(0, 30)) {
+        await fetch('/api/generation-presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: preset.id,
+            scope,
+            characterId: scope === 'character' ? id : undefined,
+            name: preset.name,
+            data: preset.data,
+          }),
+        }).catch(() => undefined);
+      }
+      remote = await fetchRemote();
+      if (scope === 'global') {
+        const oldDefaultId = localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY);
+        const matching = legacy.find((item) => item.id === oldDefaultId);
+        const newMatching = matching ? remote.find((item) => item.name === matching.name) : undefined;
+        if (newMatching) localStorage.setItem(GLOBAL_DEFAULT_PRESET_KEY, newMatching.id);
+      }
     }
-    setStorageInfo(`Saved ${scope} preset: ${name}`);
+    return remote.sort((a, b) => b.updatedAt - a.updatedAt);
   };
 
-  const overwritePreset = (scope: 'character' | 'global', id: string) => {
+  const saveNewPreset = async (scope: 'character' | 'global') => {
+    const name = presetName.trim() || `Preset ${new Date().toLocaleString()}`;
+    try {
+      const response = await fetch('/api/generation-presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, characterId: scope === 'character' ? primaryCharacterId : undefined, name, data: createFormSnapshot() }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A recept mentése sikertelen.');
+      const nextPreset = body.preset as GenerateFormPreset;
+      if (scope === 'character') {
+        const next = [nextPreset, ...characterPresets].slice(0, 30);
+        setCharacterPresets(next); setSelectedCharacterPresetId(nextPreset.id);
+      } else {
+        const next = [nextPreset, ...globalPresets].slice(0, 30);
+        setGlobalPresets(next); setSelectedGlobalPresetId(nextPreset.id);
+      }
+      setStorageInfo(`Recept elmentve: ${name}`);
+    } catch (error: any) {
+      setStorageInfo(error?.message || 'A recept mentése sikertelen.');
+    }
+  };
+
+  const overwritePreset = async (scope: 'character' | 'global', id: string) => {
     const current = scope === 'character' ? characterPresets : globalPresets;
-    const next = current.map((item) => item.id === id ? { ...item, name: presetName.trim() || item.name, updatedAt: Date.now(), data: createFormSnapshot() } : item);
-    if (scope === 'character') { setCharacterPresets(next); savePresets(scope, next, primaryCharacterId); }
-    else { setGlobalPresets(next); savePresets(scope, next); }
-    setStorageInfo(`Updated ${scope} preset.`);
+    const picked = current.find((item) => item.id === id);
+    if (!picked) return;
+    try {
+      const response = await fetch('/api/generation-presets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: presetName.trim() || picked.name, data: createFormSnapshot() }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A recept frissítése sikertelen.');
+      const saved = body.preset as GenerateFormPreset;
+      const next = current.map((item) => item.id === id ? saved : item).sort((a, b) => b.updatedAt - a.updatedAt);
+      if (scope === 'character') setCharacterPresets(next);
+      else setGlobalPresets(next);
+      setStorageInfo('Recept frissítve.');
+    } catch (error: any) {
+      setStorageInfo(error?.message || 'A recept frissítése sikertelen.');
+    }
   };
 
   const loadPresetById = (scope: 'character' | 'global', id: string) => {
@@ -350,12 +438,20 @@ export default function CharacterDetailPage() {
     applyFormSnapshot(picked.data); setPresetName(picked.name); setStorageInfo(`Loaded ${scope} preset: ${picked.name}`);
   };
 
-  const deletePresetById = (scope: 'character' | 'global', id: string) => {
+  const deletePresetById = async (scope: 'character' | 'global', id: string) => {
     const source = scope === 'character' ? characterPresets : globalPresets;
-    const next = source.filter((item) => item.id !== id);
-    if (scope === 'character') { setCharacterPresets(next); savePresets(scope, next, primaryCharacterId); setSelectedCharacterPresetId(''); }
-    else { setGlobalPresets(next); savePresets(scope, next); setSelectedGlobalPresetId(''); if (localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY) === id) localStorage.removeItem(GLOBAL_DEFAULT_PRESET_KEY); }
-    setStorageInfo(`Deleted ${scope} preset.`);
+    if (!source.some((item) => item.id === id)) return;
+    try {
+      const response = await fetch('/api/generation-presets?id=' + encodeURIComponent(id), { method: 'DELETE' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A recept törlése sikertelen.');
+      const next = source.filter((item) => item.id !== id);
+      if (scope === 'character') { setCharacterPresets(next); setSelectedCharacterPresetId(''); }
+      else { setGlobalPresets(next); setSelectedGlobalPresetId(''); if (localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY) === id) localStorage.removeItem(GLOBAL_DEFAULT_PRESET_KEY); }
+      setStorageInfo('Recept törölve.');
+    } catch (error: any) {
+      setStorageInfo(error?.message || 'A recept törlése sikertelen.');
+    }
   };
 
   useEffect(() => {
@@ -853,7 +949,7 @@ export default function CharacterDetailPage() {
                 <section className="xl:flex xl:min-h-0 xl:flex-col">
               {!isPaid && (
                 <div className="mb-2 rounded-lg border border-gray-800 bg-zinc-950 p-2 xl:p-2 text-xs text-zinc-500">
-                  FREE mód · 6 ingyenes kredit · alap generátor
+                  FREE mód · 3 ingyenes kredit · alap generátor
                 </div>
               )}
 
