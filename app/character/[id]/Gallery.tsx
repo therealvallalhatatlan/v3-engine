@@ -81,6 +81,7 @@ export default function Gallery({ characterId, onUseForAnimation, onEdit }: Prop
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [videos, setVideos] = useState<VideoInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [galleryError, setGalleryError] = useState('');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [modal, setModal] = useState<Modal>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -98,28 +99,58 @@ export default function Gallery({ characterId, onUseForAnimation, onEdit }: Prop
   const selectedItem = selectedIndex === null ? null : galleryItems[selectedIndex] ?? null;
   const loadGallery = () => {
     setLoading(true);
-    Promise.all([
-      fetch(`/api/generated/${characterId}/list`).then((res) => res.json()).catch(() => ({ images: [] })),
-      fetch(`/api/animations/${characterId}/list`).then((res) => res.json()).catch(() => ({ jobs: [] })),
+    setGalleryError('');
+
+    const fetchJson = async (url: string, label: string) => {
+      const response = await fetch(url, { cache: 'no-store' });
+      let data: any;
+      try { data = await response.json(); } catch {
+        throw new Error(label + ': a szerver érvénytelen választ adott.');
+      }
+      if (!response.ok) throw new Error(data?.error || label + ': HTTP ' + response.status);
+      return data;
+    };
+
+    Promise.allSettled([
+      fetchJson('/api/generated/' + characterId + '/list', 'Képek betöltése'),
+      fetchJson('/api/animations/' + characterId + '/list', 'Videók betöltése'),
     ])
-      .then(([imageData, videoData]) => {
-        setImages(Array.isArray(imageData?.images) ? imageData.images : []);
-        setVideos(
-          Array.isArray(videoData?.jobs)
-            ? videoData.jobs
-                .filter((job: any) => job?.status === 'done' && typeof job?.videoUrl === 'string' && job.videoUrl)
-                .map((job: any): VideoInfo => ({
-                  id: String(job.jobId),
-                  filename: `video-${job.jobId}.mp4`,
-                  url: String(job.videoUrl),
-                  created: Number(job.createdAt) || Date.now(),
-                  sourceImageUrl: typeof job.sourceImageUrl === 'string' ? job.sourceImageUrl : undefined,
-                  durationSeconds: Number(job.durationSeconds) || 0,
-                  prompt: typeof job.prompt === 'string' ? job.prompt : job.motionPrompt,
-                  status: job.status,
-                }))
-            : [],
-        );
+      .then(([imageResult, videoResult]) => {
+        const errors: string[] = [];
+
+        if (imageResult.status === 'fulfilled') {
+          const imageData = imageResult.value;
+          setImages(Array.isArray(imageData?.images) ? imageData.images : []);
+          if (Number(imageData?.unavailableCount) > 0) errors.push(Number(imageData.unavailableCount) + ' képre nem sikerült előállítani a megnyitási linket.');
+        } else {
+          setImages([]);
+          errors.push(imageResult.reason?.message || 'A képek betöltése sikertelen.');
+        }
+
+        if (videoResult.status === 'fulfilled') {
+          const videoData = videoResult.value;
+          setVideos(
+            Array.isArray(videoData?.jobs)
+              ? videoData.jobs
+                  .filter((job: any) => job?.status === 'done' && typeof job?.videoUrl === 'string' && job.videoUrl)
+                  .map((job: any): VideoInfo => ({
+                    id: String(job.jobId),
+                    filename: 'video-' + job.jobId + '.mp4',
+                    url: String(job.videoUrl),
+                    created: Number(job.createdAt) || Date.now(),
+                    sourceImageUrl: typeof job.sourceImageUrl === 'string' ? job.sourceImageUrl : undefined,
+                    durationSeconds: Number(job.durationSeconds) || 0,
+                    prompt: typeof job.prompt === 'string' ? job.prompt : job.motionPrompt,
+                    status: job.status,
+                  }))
+              : [],
+          );
+        } else {
+          setVideos([]);
+          errors.push(videoResult.reason?.message || 'A videók betöltése sikertelen.');
+        }
+
+        setGalleryError(errors.join(' '));
       })
       .finally(() => setLoading(false));
   };
@@ -283,7 +314,8 @@ export default function Gallery({ characterId, onUseForAnimation, onEdit }: Prop
       : 'aspect-[16/9]';
 
   if (loading) return <div className="py-8 text-sm text-gray-500">Galéria betöltése...</div>;
-  if (!galleryItems.length) return <div className="py-8 text-sm text-gray-500">Még nincs generált kép vagy videó.</div>;
+  if (!galleryItems.length && galleryError) return <div className="my-4 rounded-xl border border-red-900/70 bg-red-950/20 p-4 text-sm text-red-200" role="alert"><div>{galleryError}</div><button type="button" onClick={loadGallery} className="mt-3 rounded-lg border border-red-800 px-3 py-2 text-xs hover:bg-red-950/60">Újrapróbálás</button></div>;
+  if (!galleryItems.length) return <div className="py-8 text-sm text-gray-500">Még nincs generált kép vagy videó.</div>
 
   const renderInfoRows = (item: GalleryItem) => {
     if (item.kind === 'video') {
@@ -312,6 +344,7 @@ export default function Gallery({ characterId, onUseForAnimation, onEdit }: Prop
 
   return (
     <>
+      {galleryError && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3 text-xs text-amber-100" role="alert"><span>{galleryError}</span><button type="button" onClick={loadGallery} className="shrink-0 rounded-lg border border-amber-700 px-3 py-2 hover:bg-amber-950/50">Újrapróbálás</button></div>}
       <div className="mt-4 mb-2 flex items-center justify-between text-xs text-gray-400">
         <div>{currentPage}. oldal / {totalPages}</div>
         <div className="flex items-center gap-2">
