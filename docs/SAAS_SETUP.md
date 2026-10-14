@@ -6,7 +6,7 @@ Open the Supabase SQL Editor and run:
 
 `supabase/schema.sql`
 
-This creates the multi-user data model, RLS policies, the private `v3-media` bucket, the 6-credit signup grant, and atomic credit/character-slot functions.
+This creates the multi-user data model, RLS policies, the private `v3-media` bucket, the 3-credit signup grant, and atomic credit/character-slot functions.
 
 ## 2. Auth
 
@@ -44,7 +44,7 @@ The service-role key is only needed for local migration/admin tooling.
 
 ### Free
 
-- 6 one-time signup credits
+- 3 one-time signup credits
 - two system characters
 - Basic generator
 - no custom characters
@@ -73,7 +73,11 @@ The initial Stripe package defaults are:
 
 These defaults can be overridden with CREDIT_PACKAGES_JSON in the deployment environment.
 
-## 6. Stripe credit purchases
+## 6. Persisted generation tools
+
+The canonical `supabase/schema.sql` includes the shared preset catalog (`preset_catalog`), per-user saved generation recipes (`generation_presets`), persistent video jobs (`video_jobs`), and the atomic video concurrency function. If you deploy using incremental migrations rather than the canonical schema, apply all migrations under `supabase/migrations` in chronological order. Do not run only the legacy video migration without the newer `video_concurrency_guard` and `video_jobs_restrict_inserts` migrations. For an existing live deployment, apply the schema/preset/concurrency migrations first, deploy the application revision that creates video jobs through the RPC, and only then apply `20261014010400_video_jobs_restrict_inserts.sql`; it removes the direct-insert policy used by older application revisions.
+
+## 7. Stripe credit purchases
 
 The app uses Stripe Checkout for one-time credit purchases. Stripe Checkout provides the hosted payment page, and fulfillment is handled from the webhook rather than the browser redirect.
 
