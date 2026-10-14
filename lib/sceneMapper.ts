@@ -108,13 +108,38 @@ export function buildShotTemplateBlock(scene: SceneInput): string {
 
 function buildFramingBlock(scene: SceneInput): string {
   if (scene.aspectRatio === 'portrait-9-16') {
-    return `\n[FRAMING]\nOrientation: portrait (vertical), cinematic 9:16\nRule: fill the entire frame vertically, no landscape composition, no black bars, no letterboxing, no centered tiny subject\nComposition: characters and action must span the height of the frame with readable depth layers\n`;
+    const composition = scene.backgroundOnly
+      ? 'Composition: architectural and environmental detail spans the height of the frame with layered depth; no person or character is needed'
+      : 'Composition: characters and action must span the height of the frame with readable depth layers';
+    return `
+[FRAMING]
+Orientation: portrait (vertical), cinematic 9:16
+Rule: fill the entire frame vertically, no landscape composition, no black bars, no letterboxing, no centered tiny subject
+${composition}
+`;
   }
-  return `\n[FRAMING]\nOrientation: landscape (horizontal), cinematic widescreen 16:9\nRule: fill the entire frame horizontally, no portrait composition, no black bars, no letterboxing, no centered vertical subject\nComposition: characters and action must span the width of the frame\n`;
+  const composition = scene.backgroundOnly
+    ? 'Composition: architecture, objects, and environmental detail span the width of the frame with layered depth; no person or character is needed'
+    : 'Composition: characters and action must span the width of the frame';
+  return `
+[FRAMING]
+Orientation: landscape (horizontal), cinematic widescreen 16:9
+Rule: fill the entire frame horizontally, no portrait composition, no black bars, no letterboxing, no centered vertical subject
+${composition}
+`;
 }
 
 function buildBackgroundReferenceBlock(scene: SceneInput): string {
   if (!scene.backgroundReference) return '';
+  if (scene.backgroundOnly) {
+    return `
+[ENVIRONMENT REFERENCE GUIDANCE]
+- Treat every supplied reference as environment, architecture, object, material, palette, lighting, or composition guidance only.
+- Do not reproduce people or characters that happen to appear in any reference.
+- No human figures, faces, silhouettes, mannequins, or body parts should appear in the final image.
+- Reconstruct a coherent environment; do not paste reference images together or reproduce them pixel-for-pixel.
+`;
+  }
   return `
 [BACKGROUND REFERENCE]
 - Treat the supplied background reference image as an environmental and compositional guide, never as a literal background plate.
@@ -133,7 +158,7 @@ export function buildSceneBlock(scene: SceneInput): string {
   const actionLine = scene.actionPrompt ? `Action prompt: ${scene.actionPrompt}` : 'Action prompt: not provided';
   const lightingText = scene.lighting || scene.scenePackage?.locationProfile?.lightingAndTime || '';
   const lightingLine = lightingText ? `Lighting: ${normalizeToPromptEnglish(lightingText)}` : 'Lighting: not provided';
-  return `\n[SCENE]\nLocation:\n${buildLocationProfileSummary(scene)}\n${lightingLine}\n${actionLine}\n${buildBackgroundReferenceBlock(scene)}\n\n${buildFramingBlock(scene)}\n\n${buildShotTemplateBlock(scene)}\n\n${buildContinuityBlock(scene)}\n\n[INTERACTION]\n${cast ? `Characters ${cast} are naturally integrated into the scene, with believable spacing and body language` : 'Character is naturally integrated into the scene, not posing artificially'}\n`;
+  return `\n[SCENE]\nLocation:\n${buildLocationProfileSummary(scene)}\n${lightingLine}\n${actionLine}\n${buildBackgroundReferenceBlock(scene)}\n\n${buildFramingBlock(scene)}\n\n${buildShotTemplateBlock(scene)}\n\n${buildContinuityBlock(scene)}\n\n[INTERACTION]\n${scene.backgroundOnly ? 'Environment-only image: absolutely no people, characters, human silhouettes, faces, or body parts; the location itself is the subject' : cast ? `Characters ${cast} are naturally integrated into the scene, with believable spacing and body language` : 'Character is naturally integrated into the scene, not posing artificially'}\n`;
 }
 
 export { MOOD_MAP };
