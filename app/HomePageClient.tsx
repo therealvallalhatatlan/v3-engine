@@ -89,7 +89,7 @@ export default function HomePage() {
                   Belépés / regisztráció
                 </Link>
                 <span className="rounded-xl border border-zinc-800 bg-zinc-950/80 px-4 py-3 text-xs text-zinc-500">
-                  6 ingyenes generálás
+                  3 ingyenes generálás
                 </span>
               </div>
 
