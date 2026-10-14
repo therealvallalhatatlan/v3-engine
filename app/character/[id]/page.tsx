@@ -360,8 +360,11 @@ export default function CharacterDetailPage() {
 
     let remote = await fetchRemote();
     const legacy = loadLegacyPresets(scope, id);
-    if (remote.length === 0 && legacy.length > 0) {
-      for (const preset of legacy.slice(0, 30)) {
+    const remoteIds = new Set(remote.map((item) => item.id));
+    const missingLegacy = legacy.filter((item) => !remoteIds.has(item.id)).slice(0, 30);
+
+    if (missingLegacy.length > 0) {
+      for (const preset of missingLegacy) {
         await fetch('/api/generation-presets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -375,13 +378,8 @@ export default function CharacterDetailPage() {
         }).catch(() => undefined);
       }
       remote = await fetchRemote();
-      if (scope === 'global') {
-        const oldDefaultId = localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY);
-        const matching = legacy.find((item) => item.id === oldDefaultId);
-        const newMatching = matching ? remote.find((item) => item.name === matching.name) : undefined;
-        if (newMatching) localStorage.setItem(GLOBAL_DEFAULT_PRESET_KEY, newMatching.id);
-      }
     }
+
     return remote.sort((a, b) => b.updatedAt - a.updatedAt);
   };
 
