@@ -215,6 +215,13 @@ export async function POST(req: NextRequest) {
     const status = Number(e?.status);
     const message = String(e?.message || 'Failed to create animation');
 
+    if (message.includes('video_job_limit_reached')) {
+      return NextResponse.json(
+        { error: 'Egyszerre legfeljebb két videógenerálás futhat. Várd meg, amíg az egyik befejeződik.' },
+        { status: 429 },
+      );
+    }
+
     if (status === 402 || /insufficient credit|api error 402/i.test(message)) {
       return NextResponse.json(
         {
