@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseServerClient, getCurrentUser } from '../../../lib/supabase/server';
 import {
   PresetRecord,
   PresetType,
@@ -9,6 +10,32 @@ import {
   resetBuiltinPreset,
   updatePreset,
 } from '../../../lib/presetStore';
+import { deletePresetFromSupabase, loadPresetCatalogFromSupabase, savePresetToSupabase } from '../../../lib/supabase/presets';
+
+
+async function requireAdmin() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { response: NextResponse.json({ error: 'Authentication required' }, { status: 401 }) };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('plan')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Preset admin check failed:', error);
+    return { response: NextResponse.json({ error: 'Unable to verify preset permissions' }, { status: 500 }) };
+  }
+  if (profile?.plan !== 'admin') {
+    return { response: NextResponse.json({ error: 'Only admins can modify the shared preset catalog.' }, { status: 403 }) };
+  }
+
+  return { userId: user.id };
+}
 
 type PresetOption = {
   id: string;
@@ -52,19 +79,34 @@ function validateText(label: string, prompt: string, negative: string): string |
 }
 
 export async function GET() {
-  const all = getAllPresets();
-  return NextResponse.json({
-    presets: {
-      location: all.filter((preset) => preset.type === 'location').map(toOption),
-      camera: all.filter((preset) => preset.type === 'camera').map(toOption),
-      style: all.filter((preset) => preset.type === 'style').map(toOption),
-    },
-    all,
-  });
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+
+  const supabase = await createSupabaseServerClient();
+  const { data: profile } = await supabase.from('profiles').select('plan').eq('id', user.id).maybeSingle();
+  try {
+    await loadPresetCatalogFromSupabase(supabase, { seedIfNeeded: profile?.plan === 'admin' });
+    const all = getAllPresets();
+    return NextResponse.json({
+      presets: {
+        location: all.filter((preset) => preset.type === 'location').map(toOption),
+        camera: all.filter((preset) => preset.type === 'camera').map(toOption),
+        style: all.filter((preset) => preset.type === 'style').map(toOption),
+      },
+      all,
+    });
+  } catch (error: any) {
+    console.error('Preset catalog load failed:', error);
+    return NextResponse.json({ error: 'Nem sikerült betölteni a tartós presetkatalógust.' }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
+  const permission = await requireAdmin();
+  if ('response' in permission) return permission.response;
+  const supabase = await createSupabaseServerClient();
   try {
+    await loadPresetCatalogFromSupabase(supabase, { seedIfNeeded: true });
     const body = await req.json();
     if (!isType(body?.type)) return NextResponse.json({ error: 'type must be location, camera or style' }, { status: 400 });
 
@@ -80,6 +122,7 @@ export async function POST(req: NextRequest) {
     if (keyTaken(type, key)) return NextResponse.json({ error: 'A preset with this key already exists.' }, { status: 409 });
 
     const preset = addCustomPreset({ type, key, label, prompt, negative: negative || undefined });
+    await savePresetToSupabase(supabase, preset);
     return NextResponse.json({ preset }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to create preset' }, { status: 400 });
@@ -87,7 +130,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const permission = await requireAdmin();
+  if ('response' in permission) return permission.response;
+  const supabase = await createSupabaseServerClient();
   try {
+    await loadPresetCatalogFromSupabase(supabase, { seedIfNeeded: true });
     const body = await req.json();
     const id = String(body?.id || '').trim();
     const action = String(body?.action || 'update');
@@ -96,12 +143,14 @@ export async function PATCH(req: NextRequest) {
     if (action === 'reset') {
       const preset = resetBuiltinPreset(id);
       if (!preset) return NextResponse.json({ error: 'Built-in preset not found' }, { status: 404 });
+      await savePresetToSupabase(supabase, preset);
       return NextResponse.json({ preset });
     }
 
     if (action === 'duplicate') {
       const preset = duplicatePreset(id);
       if (!preset) return NextResponse.json({ error: 'Preset not found' }, { status: 404 });
+      await savePresetToSupabase(supabase, preset);
       return NextResponse.json({ preset }, { status: 201 });
     }
 
@@ -119,6 +168,7 @@ export async function PATCH(req: NextRequest) {
     if (keyTaken(current.type, key, id)) return NextResponse.json({ error: 'A preset with this key already exists.' }, { status: 409 });
 
     const preset = updatePreset(id, { key, label, prompt, negative: negative || undefined });
+    if (preset) await savePresetToSupabase(supabase, preset);
     return NextResponse.json({ preset });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to update preset' }, { status: 400 });
@@ -126,9 +176,22 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const permission = await requireAdmin();
+  if ('response' in permission) return permission.response;
+  const supabase = await createSupabaseServerClient();
+  try { await loadPresetCatalogFromSupabase(supabase, { seedIfNeeded: true }); } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to load presets' }, { status: 500 });
+  }
   const id = new URL(req.url).searchParams.get('id') || '';
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
-  const removed = deleteCustomPreset(id);
-  if (!removed) return NextResponse.json({ error: 'Built-in presets cannot be deleted. Use Reset instead.' }, { status: 409 });
-  return NextResponse.json({ ok: true });
+  const target = getAllPresets().find((preset) => preset.id === id);
+  if (!target) return NextResponse.json({ error: 'Preset not found' }, { status: 404 });
+  if (target.builtin) return NextResponse.json({ error: 'Built-in presets cannot be deleted. Use Reset instead.' }, { status: 409 });
+  try {
+    await deletePresetFromSupabase(supabase, id);
+    deleteCustomPreset(id);
+    return NextResponse.json({ ok: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to delete preset' }, { status: 500 });
+  }
 }
