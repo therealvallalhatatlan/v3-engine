@@ -89,6 +89,20 @@ insert into storage.buckets (id, name, public)
 values ('v3-media', 'v3-media', false)
 on conflict (id) do nothing;
 
+create table if not exists public.generation_presets (
+  id text primary key,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  scope text not null check (scope in ('global', 'character')),
+  character_id uuid references public.characters(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint generation_presets_scope_character_check check ((scope = 'global' and character_id is null) or (scope = 'character' and character_id is not null))
+);
+create index if not exists generation_presets_user_scope_idx on public.generation_presets(user_id, scope, updated_at desc);
+create index if not exists generation_presets_character_idx on public.generation_presets(user_id, character_id, updated_at desc);
+
 create table if not exists public.preset_catalog (
   id text primary key,
   preset_type text not null check (preset_type in ('location', 'camera', 'style')),
@@ -113,6 +127,7 @@ alter table public.characters enable row level security;
 alter table public.character_images enable row level security;
 alter table public.generation_events enable row level security;
 alter table public.generated_images enable row level security;
+alter table public.generation_presets enable row level security;
 alter table public.preset_catalog enable row level security;
 alter table public.credit_transactions enable row level security;
 alter table public.purchases enable row level security;
@@ -167,6 +182,16 @@ create policy "owned_generated_images_select" on public.generated_images for sel
 grant select, insert, update, delete on public.preset_catalog to authenticated;
 
 drop policy if exists "preset_catalog_authenticated_select" on public.preset_catalog;
+grant select, insert, update, delete on public.generation_presets to authenticated;
+drop policy if exists generation_presets_owner_select on public.generation_presets;
+create policy generation_presets_owner_select on public.generation_presets for select to authenticated using (user_id = auth.uid());
+drop policy if exists generation_presets_owner_insert on public.generation_presets;
+create policy generation_presets_owner_insert on public.generation_presets for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists generation_presets_owner_update on public.generation_presets;
+create policy generation_presets_owner_update on public.generation_presets for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists generation_presets_owner_delete on public.generation_presets;
+create policy generation_presets_owner_delete on public.generation_presets for delete to authenticated using (user_id = auth.uid());
+
 create policy "preset_catalog_authenticated_select" on public.preset_catalog for select to authenticated using (auth.uid() is not null);
 drop policy if exists "preset_catalog_admin_insert" on public.preset_catalog;
 create policy "preset_catalog_admin_insert" on public.preset_catalog for insert to authenticated with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
