@@ -921,7 +921,17 @@ export default function CharacterDetailPage() {
   };
 
   const removeExtraCharacter = (id: string) => setExtraCharacterIds((prev) => prev.filter((value) => value !== id));
-  const handleUseForAnimation = (url: string) => { setAnimatePreselectedUrl(url); setActiveTab('animate'); };
+  const handleUseForAnimation = (image: ImageInfo) => {
+    // Keep the complete gallery record: signed image URLs can differ between requests.
+    setGeneratedImages((current) => [
+      image,
+      ...current.filter((existing) =>
+        image.id ? existing.id !== image.id : existing.url !== image.url,
+      ),
+    ]);
+    setAnimatePreselectedUrl(image.url);
+    setActiveTab('animate');
+  };
   const handleUseBackgroundAsReference = (image: LibraryBackground) => { setSelectedLibraryBackground(image); setGenerationMode('character'); setActiveTab('generate'); };
 
   const locationPresetCount = useMemo(() => locationPresetOptions.length, [locationPresetOptions]);
