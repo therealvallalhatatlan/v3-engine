@@ -16,7 +16,7 @@ The app is built around a simple workflow:
 6. Save generated images together with generation metadata and prompts.
 7. Optionally turn a generated image into an animated video through Replicate.
 
-The repository is currently a local-file-storage application rather than a database-backed SaaS. Character data and generated assets are written to the configured filesystem storage directory.
+The deployed application uses Supabase Auth, Postgres metadata, and private Supabase Storage for user-owned characters, references, generated images, edit sessions, and videos. A few legacy/local-development helpers still use the configured filesystem; deployed shared state must not depend on that ephemeral disk.
 
 ## Core features
 
@@ -129,8 +129,19 @@ Built-in styles currently include:
 - `dreamy-ethereal`
 - `graphic-novel`
 - `police-speed-photo`
+- `paper-ghost-photo` — monochrome photo dissolving into white page
+- `xerox-apparition` — damaged photocopy / documentary evidence
+- `white-noise-veil` — airy monochrome apparition
 
 The selected style can be combined with a numeric intensity value from `0` to `100`.
+
+### Standalone background generation
+
+The character workspace supports a real `0 character` mode. It uses a location-first prompt without character DNA, accepts up to six environmental reference images, and stores finished environments in a private Background Library. A saved background can later be selected as an environment reference for a character scene.
+
+### Durable generation recipes
+
+Generation recipes are stored per user in Supabase (`public.generation_presets`) with global and per-character scopes. A recipe preserves location, lighting, camera, aspect ratio, style, continuity flags, generation mode and environmental reference selections. Existing browser-local recipes are imported when a matching recipe is not yet present in Supabase.
 
 ### Dynamic preset manager
 
@@ -158,11 +169,9 @@ Each custom preset has:
 - `prompt` - prompt block injected into generation
 - `negative` - optional style-specific negative prompt
 
-Custom presets are stored at:
+Custom presets are stored in the shared Supabase table `public.preset_catalog` when deployed. The legacy `<STORAGE_DIR>/presets.json` file is used only as a local-development fallback and can be imported by an admin on first load.
 
-```text
-<STORAGE_DIR>/presets.json
-```
+The Supabase table is seeded with built-in presets on the first admin load. Shared preset mutations are admin-only and are enforced by both the API and row-level security.
 
 The generator loads them at runtime. Creating a new preset therefore does not require a source-code change or a new preset type declaration.
 
@@ -184,7 +193,7 @@ When an aspect ratio is selected, the storage layer normalizes the image to:
 - `1536 × 864` for landscape `16:9`
 - `864 × 1536` for portrait `9:16`
 
-Images and their generation metadata are then saved to the filesystem.
+Generated image bytes are saved to private Supabase Storage, and generation metadata is saved to Postgres. Legacy filesystem helpers remain for local-development and migration scenarios.
 
 ### Image-to-video generation
 
@@ -199,11 +208,11 @@ The current UI keeps the main controls intentionally small:
 - Motion / video prompt
 - Duration: 5, 8, 10, 15 or 20 seconds
 
-Video jobs are persisted locally and expose statuses such as:
+Video jobs are persisted in the Supabase `public.video_jobs` table and expose statuses such as:
 
 `queued`, `processing`, `done`, `failed`, `canceled`
 
-The implementation polls Replicate predictions, downloads the completed MP4 to local storage when possible, and supports canceling an active job.
+The implementation polls Replicate predictions, stores completed MP4 files in private Supabase Storage when possible, and supports canceling an active job. A PostgreSQL function atomically limits each user to two active video jobs.
 
 ## Tech stack
 
@@ -217,7 +226,7 @@ The implementation polls Replicate predictions, downloads the completed MP4 to l
 | Still image generation | Google Gemini 2.5 Flash Image |
 | Video generation | Replicate |
 | IDs | `uuid` |
-| Storage | Local filesystem + JSON |
+| Storage | Supabase Postgres + private Supabase Storage (legacy local fallback for development) |
 | Build | Next.js / TypeScript |
 
 The dependency list in `package.json` currently includes Next.js 14, React 18, Tailwind CSS 3, Sharp, UUID, TypeScript, PostCSS, and Autoprefixer.
@@ -232,7 +241,7 @@ Before starting, install:
 - A **Replicate API token** only when video animation is enabled
 - A writable local storage directory
 
-The project is designed around server-side filesystem access, so deploy targets with ephemeral or read-only filesystems need a different storage adapter before production use.
+Local development can use `STORAGE_DIR`. Deployed user assets and shared metadata use Supabase; do not rely on Vercel's ephemeral filesystem for durable state.
 
 ## Installation
 
@@ -583,9 +592,9 @@ Character creation accepts up to 5 uploaded images. The Gemini generation layer 
 
 ### Dynamic presets
 
-Custom presets are deliberately stored outside the repository source tree. The built-in prompt definitions remain in `lib/camera.ts`, `lib/sceneMapper.ts`, and `lib/style.ts`, while `lib/presetStore.ts` loads custom additions from `<STORAGE_DIR>/presets.json`.
+Preset changes are stored in the shared `public.preset_catalog` table. Only admins can create, edit, duplicate, reset, or delete shared presets; signed-in users can read the catalog for generation. The legacy `presets.json` file is a local-development fallback, not the deployed source of truth.
 
-This keeps the application portable and means a prompt designer can create new presets through `/presets` without creating another code commit.
+Saved generation recipes are stored per user in `public.generation_presets`, with separate global and per-character scopes. Old browser-local recipes are imported on first load when they are missing from the database.
 
 ### Aspect ratio handling
 
@@ -619,7 +628,7 @@ Use the Preset Manager's **Refresh** button, then refresh the character workspac
 
 ### A custom preset is rejected by generation
 
-Make sure the preset still exists in `<STORAGE_DIR>/presets.json`, and that its key uses only lowercase letters, numbers, and hyphens. The generator validates custom keys server-side.
+Make sure the preset exists in `public.preset_catalog`; confirm that the key uses lowercase letters, numbers, and hyphens. Preset writes are admin-only and the generator validates keys server-side.
 
 ### Generated images are cropped unexpectedly
 
@@ -631,19 +640,13 @@ The animation adapter surfaces provider billing failures as a `402` response. Ch
 
 ## Security considerations
 
-This project currently stores assets on the server filesystem and exposes generation and preset management through application routes. Before deploying it as a public multi-user service, consider adding:
+The deployed app uses Supabase Auth, per-user Postgres records and private Supabase Storage, with row-level security on user-owned data. The remaining production-hardening priorities are:
 
-- Authentication and authorization, especially for `/presets`
-- Per-user storage isolation
-- Request rate limiting
-- Upload size/type validation
-- Abuse prevention
-- API usage quotas
-- Secure persistent object storage
-- Database-backed metadata
-- Background job processing for long-running generation
-- Signed/expiring asset URLs where appropriate
-- Structured logging and monitoring
+- Complete integration tests for credit, preset, background-reference and video-job flows
+- Rate limits and abuse monitoring for image generation and conversational edits
+- A dedicated durable job queue for image generations that currently run synchronously
+- More granular observability for generation latency, provider failures and storage cleanup
+- Review of every remaining server-side write path and RLS policy
 
 API keys must remain server-side and should never be exposed to client code.
 
@@ -676,17 +679,14 @@ The same SQL is also included at the end of `supabase/schema.sql` for fresh inst
 
 ## Current limitations
 
-This repository is best understood as an evolving generation engine / prototype rather than a finished multi-tenant production platform.
+This repository is an evolving visual-production engine rather than a finished end-to-end visual bible. Current limitations include:
 
-Notable limitations of the current architecture:
-
-- Local filesystem persistence
-- No built-in authentication layer visible in the current codebase
-- No database layer
-- Generation is performed synchronously in the image-generation route
-- Video processing depends on an external Replicate model configuration
-- Production deployment requires persistent storage or a storage-adapter rewrite
-- Preset Manager access is currently not authenticated
+- Still-image generation runs synchronously in the image-generation route
+- The universe-wide project, asset, scene and shot database is not yet implemented
+- The gallery supports browsing but not production statuses such as selected / approved / final
+- Bulk storyboard generation and print-ready batch export are not yet implemented
+- Video generation depends on the configured external Replicate model and account balance
+- The GitHub Actions build check has recently failed before reporting runner steps; verify the runner/CI status independently of Vercel preview builds
 
 ## License
 
