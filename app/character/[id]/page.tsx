@@ -323,7 +323,7 @@ export default function CharacterDetailPage() {
           if (!response.ok || !data?.url) return null;
           return { path: item.path, name: item.name, url: String(data.url) };
         } catch { return null; }
-      })).then((loaded) => setEnvironmentReferenceImages(loaded.filter((item): item is { path: string; name: string; url: string } => Boolean(item)));
+      })).then((loaded) => setEnvironmentReferenceImages(loaded.filter((item): item is { path: string; name: string; url: string } => Boolean(item))));
     }
 
     if (snapshot.selectedLibraryBackgroundId !== undefined) {
