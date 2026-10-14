@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseServerClient, getCurrentUser } from '../../../lib/supabase/server';
 import {
   PresetRecord,
   PresetType,
@@ -9,6 +10,31 @@ import {
   resetBuiltinPreset,
   updatePreset,
 } from '../../../lib/presetStore';
+
+
+async function requireAdmin() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { response: NextResponse.json({ error: 'Authentication required' }, { status: 401 }) };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('plan')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Preset admin check failed:', error);
+    return { response: NextResponse.json({ error: 'Unable to verify preset permissions' }, { status: 500 }) };
+  }
+  if (profile?.plan !== 'admin') {
+    return { response: NextResponse.json({ error: 'Only admins can modify the shared preset catalog.' }, { status: 403 }) };
+  }
+
+  return { userId: user.id };
+}
 
 type PresetOption = {
   id: string;
@@ -52,6 +78,8 @@ function validateText(label: string, prompt: string, negative: string): string |
 }
 
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
   const all = getAllPresets();
   return NextResponse.json({
     presets: {
@@ -64,6 +92,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const permission = await requireAdmin();
+  if ('response' in permission) return permission.response;
   try {
     const body = await req.json();
     if (!isType(body?.type)) return NextResponse.json({ error: 'type must be location, camera or style' }, { status: 400 });
@@ -87,6 +117,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const permission = await requireAdmin();
+  if ('response' in permission) return permission.response;
   try {
     const body = await req.json();
     const id = String(body?.id || '').trim();
@@ -126,6 +158,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const permission = await requireAdmin();
+  if ('response' in permission) return permission.response;
   const id = new URL(req.url).searchParams.get('id') || '';
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
   const removed = deleteCustomPreset(id);
