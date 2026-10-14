@@ -209,7 +209,6 @@ drop policy if exists "owned_generated_images_select" on public.generated_images
 drop policy if exists "own_video_jobs_select" on public.video_jobs;
 create policy "own_video_jobs_select" on public.video_jobs for select using (user_id = auth.uid());
 drop policy if exists "own_video_jobs_insert" on public.video_jobs;
-create policy "own_video_jobs_insert" on public.video_jobs for insert with check (user_id = auth.uid());
 drop policy if exists "own_video_jobs_update" on public.video_jobs;
 create policy "own_video_jobs_update" on public.video_jobs for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
