@@ -16,7 +16,7 @@ The app is built around a simple workflow:
 6. Save generated images together with generation metadata and prompts.
 7. Optionally turn a generated image into an animated video through Replicate.
 
-The repository is currently a local-file-storage application rather than a database-backed SaaS. Character data and generated assets are written to the configured filesystem storage directory.
+The deployed application uses Supabase Auth, Postgres metadata, and private Supabase Storage for user-owned characters, references, generated images, edit sessions, and videos. A few legacy/local-development helpers still use the configured filesystem; deployed shared state must not depend on that ephemeral disk.
 
 ## Core features
 
@@ -217,7 +217,7 @@ The implementation polls Replicate predictions, downloads the completed MP4 to l
 | Still image generation | Google Gemini 2.5 Flash Image |
 | Video generation | Replicate |
 | IDs | `uuid` |
-| Storage | Local filesystem + JSON |
+| Storage | Supabase Postgres + private Supabase Storage (legacy local fallback for development) |
 | Build | Next.js / TypeScript |
 
 The dependency list in `package.json` currently includes Next.js 14, React 18, Tailwind CSS 3, Sharp, UUID, TypeScript, PostCSS, and Autoprefixer.
