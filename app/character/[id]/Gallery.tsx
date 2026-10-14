@@ -36,7 +36,7 @@ type GalleryItem =
 
 interface Props {
   characterId: string;
-  onUseForAnimation?: (url: string) => void;
+  onUseForAnimation?: (image: ImageInfo) => void;
   onEdit?: (image: { id: string; url: string }) => void;
 }
 
@@ -377,7 +377,7 @@ export default function Gallery({ characterId, onUseForAnimation, onEdit }: Prop
                   </button>
                 )}
                 {onUseForAnimation && (
-                  <button type="button" onClick={() => onUseForAnimation(img.url)} title="Videó készítése ebből a képből" aria-label="Videó készítése ebből a képből" className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-700 px-3 py-2 text-gray-200 transition hover:border-gray-500 hover:bg-zinc-900">
+                  <button type="button" onClick={() => onUseForAnimation(img)} title="Videó készítése ebből a képből" aria-label="Videó készítése ebből a képből" className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-700 px-3 py-2 text-gray-200 transition hover:border-gray-500 hover:bg-zinc-900">
                     <Icon name="play" />
                   </button>
                 )}
