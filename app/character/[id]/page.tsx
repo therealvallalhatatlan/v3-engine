@@ -63,6 +63,9 @@ const DEFAULT_STYLE_OPTIONS: PresetOption[] = [
   { value: 'dreamy-ethereal', label: 'Dreamy Ethereal' },
   { value: 'graphic-novel', label: 'Graphic Novel' },
   { value: 'police-speed-photo', label: 'Police Speeding Camera Photo' },
+  { value: 'paper-ghost-photo', label: 'Papírkísértet · White-page photo' },
+  { value: 'xerox-apparition', label: 'Xerox-jelenés · Damaged evidence' },
+  { value: 'white-noise-veil', label: 'Fehér zajfátyol · Airy apparition' },
 ];
 
 const DEFAULT_LOCATION_OPTIONS: PresetOption[] = [
@@ -122,10 +125,15 @@ const GLOBAL_DEFAULT_PRESET_KEY = `illustration.generate.defaultPreset.${GENERAT
   styleIntensity: number;
   compareMode: boolean;
   compareStyle: string;
+  generationMode: GenerationMode;
+  selectedLibraryBackgroundId: string | null;
+  environmentReferences: Array<{ path: string; name: string }>;
 };
 
 type GenerateFormPreset = { id: string; name: string; updatedAt: number; data: GenerateFormState };
-type Tab = 'generate' | 'animate' | 'gallery';
+type Tab = 'generate' | 'animate' | 'gallery' | 'backgrounds';
+type GenerationMode = 'character' | 'background';
+type LibraryBackground = { id: string; filename: string; url: string; created: number; meta?: { prompt?: string; style?: string; aspectRatio?: string } | null };
 
 type PresetCatalogResponse = {
   presets?: {
@@ -174,6 +182,7 @@ function compressBackgroundReference(file: File): Promise<Blob> {
 }
 
 const Gallery = dynamic(() => import('./Gallery'), { ssr: false });
+const BackgroundLibrary = dynamic(() => import('./BackgroundLibrary'), { ssr: false });
 const ImageEditChat = dynamic(() => import('./ImageEditChat'), { ssr: false });
 const AnimationPanel = dynamic(() => import('./AnimationPanel'), { ssr: false });
 
@@ -193,6 +202,7 @@ export default function CharacterDetailPage() {
   const [userPlan, setUserPlan] = useState<'free' | 'paid' | 'admin'>('free');
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('generate');
+  const [generationMode, setGenerationMode] = useState<GenerationMode>('character');
   const [cameraOptions, setCameraOptions] = useState(DEFAULT_CAMERA_OPTIONS);
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
   const [locationPresetOptions, setLocationPresetOptions] = useState(DEFAULT_LOCATION_OPTIONS);
@@ -246,6 +256,11 @@ export default function CharacterDetailPage() {
   const [backgroundReferenceUrl, setBackgroundReferenceUrl] = useState('');
   const [backgroundReferenceUploading, setBackgroundReferenceUploading] = useState(false);
   const [backgroundReferenceError, setBackgroundReferenceError] = useState('');
+  const [environmentReferenceImages, setEnvironmentReferenceImages] = useState<Array<{ path: string; url: string; name: string }>>([]);
+  const [environmentReferenceUploading, setEnvironmentReferenceUploading] = useState(false);
+  const [environmentReferenceError, setEnvironmentReferenceError] = useState('');
+  const environmentReferenceInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedLibraryBackground, setSelectedLibraryBackground] = useState<LibraryBackground | null>(null);
 
   const hydratedRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,7 +282,9 @@ export default function CharacterDetailPage() {
     location, lighting, locationPreset, locationGeometry, locationPalette, locationProps,
     locationCameraContinuity, lockGeometry, lockLighting, lockPalette, lockProps, lockCameraRules,
     continuityNotes, actionPrompt, extraCharacterIds, aliasMap, camera, aspectRatio, style, styleIntensity,
-    compareMode, compareStyle,
+    compareMode, compareStyle, generationMode,
+    selectedLibraryBackgroundId: selectedLibraryBackground?.id || null,
+    environmentReferences: environmentReferenceImages.map(({ path, name }) => ({ path, name })),
   });
 
   const applyFormSnapshot = (snapshot: Partial<GenerateFormState>) => {
@@ -295,40 +312,119 @@ export default function CharacterDetailPage() {
     if (typeof snapshot.styleIntensity === 'number' && Number.isFinite(snapshot.styleIntensity)) setStyleIntensity(Math.max(0, Math.min(100, Math.round(snapshot.styleIntensity))));
     if (typeof snapshot.compareMode === 'boolean') setCompareMode(snapshot.compareMode);
     if (typeof snapshot.compareStyle === 'string') setCompareStyle(snapshot.compareStyle);
+    if (snapshot.generationMode === 'character' || snapshot.generationMode === 'background') setGenerationMode(snapshot.generationMode);
+
+    const references = Array.isArray(snapshot.environmentReferences)
+      ? snapshot.environmentReferences.filter((item) => item && typeof item.path === 'string' && typeof item.name === 'string')
+      : [];
+    setEnvironmentReferenceImages([]);
+    void Promise.all(references.map(async (item) => {
+      try {
+        const response = await fetch('/api/generate/background-reference?path=' + encodeURIComponent(item.path), { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data?.url) return null;
+        return { path: item.path, name: item.name, url: String(data.url) };
+      } catch { return null; }
+    })).then((loaded) => setEnvironmentReferenceImages(loaded.filter((item): item is { path: string; name: string; url: string } => Boolean(item))));
+
+    const selectedId = snapshot.selectedLibraryBackgroundId || null;
+    setSelectedLibraryBackground(null);
+    if (selectedId) {
+      void fetch('/api/generated/backgrounds/list', { cache: 'no-store' })
+        .then((response) => response.json())
+        .then((data) => setSelectedLibraryBackground((data.images || []).find((item: LibraryBackground) => item.id === selectedId) || null))
+        .catch(() => setSelectedLibraryBackground(null));
+    }
   };
 
-  const loadPresets = (scope: 'character' | 'global', id?: string): GenerateFormPreset[] => {
+  const loadLegacyPresets = (scope: 'character' | 'global', id?: string): GenerateFormPreset[] => {
     const key = scope === 'character' ? getCharacterPresetsKey(id || '') : GLOBAL_PRESETS_KEY;
     if (scope === 'character' && !id) return [];
     const parsed = parseStoredJson<GenerateFormPreset[]>(key);
     return Array.isArray(parsed) ? parsed.filter((item) => item?.id && item.data).sort((a, b) => b.updatedAt - a.updatedAt) : [];
   };
 
-  const savePresets = (scope: 'character' | 'global', presets: GenerateFormPreset[], id?: string) => {
-    const key = scope === 'character' ? getCharacterPresetsKey(id || '') : GLOBAL_PRESETS_KEY;
-    if (scope === 'character' && !id) return;
-    localStorage.setItem(key, JSON.stringify(presets));
-  };
+  const fetchGenerationPresets = async (scope: 'character' | 'global', id?: string): Promise<GenerateFormPreset[]> => {
+    if (scope === 'character' && !id) return [];
+    const query = new URLSearchParams({ scope });
+    if (scope === 'character' && id) query.set('characterId', id);
 
-  const saveNewPreset = (scope: 'character' | 'global') => {
-    const name = presetName.trim() || `Preset ${new Date().toLocaleString()}`;
-    const nextPreset: GenerateFormPreset = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, updatedAt: Date.now(), data: createFormSnapshot() };
-    if (scope === 'character') {
-      const next = [nextPreset, ...characterPresets].slice(0, 30);
-      setCharacterPresets(next); setSelectedCharacterPresetId(nextPreset.id); savePresets(scope, next, primaryCharacterId);
-    } else {
-      const next = [nextPreset, ...globalPresets].slice(0, 30);
-      setGlobalPresets(next); setSelectedGlobalPresetId(nextPreset.id); savePresets(scope, next);
+    const fetchRemote = async () => {
+      const response = await fetch('/api/generation-presets?' + query.toString(), { cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A generálási receptek betöltése sikertelen.');
+      return (Array.isArray(body.presets) ? body.presets : []) as GenerateFormPreset[];
+    };
+
+    let remote = await fetchRemote();
+    const legacy = loadLegacyPresets(scope, id);
+    const remoteIds = new Set(remote.map((item) => item.id));
+    const missingLegacy = legacy.filter((item) => !remoteIds.has(item.id)).slice(0, 30);
+
+    if (missingLegacy.length > 0) {
+      for (const preset of missingLegacy) {
+        await fetch('/api/generation-presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: preset.id,
+            scope,
+            characterId: scope === 'character' ? id : undefined,
+            name: preset.name,
+            data: preset.data,
+          }),
+        }).catch(() => undefined);
+      }
+      remote = await fetchRemote();
     }
-    setStorageInfo(`Saved ${scope} preset: ${name}`);
+
+    return remote.sort((a, b) => b.updatedAt - a.updatedAt);
   };
 
-  const overwritePreset = (scope: 'character' | 'global', id: string) => {
+  const saveNewPreset = async (scope: 'character' | 'global') => {
+    const name = presetName.trim() || `Preset ${new Date().toLocaleString()}`;
+    try {
+      const response = await fetch('/api/generation-presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, characterId: scope === 'character' ? primaryCharacterId : undefined, name, data: createFormSnapshot() }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A recept mentése sikertelen.');
+      const nextPreset = body.preset as GenerateFormPreset;
+      if (scope === 'character') {
+        const next = [nextPreset, ...characterPresets].slice(0, 30);
+        setCharacterPresets(next); setSelectedCharacterPresetId(nextPreset.id);
+      } else {
+        const next = [nextPreset, ...globalPresets].slice(0, 30);
+        setGlobalPresets(next); setSelectedGlobalPresetId(nextPreset.id);
+      }
+      setStorageInfo(`Recept elmentve: ${name}`);
+    } catch (error: any) {
+      setStorageInfo(error?.message || 'A recept mentése sikertelen.');
+    }
+  };
+
+  const overwritePreset = async (scope: 'character' | 'global', id: string) => {
     const current = scope === 'character' ? characterPresets : globalPresets;
-    const next = current.map((item) => item.id === id ? { ...item, name: presetName.trim() || item.name, updatedAt: Date.now(), data: createFormSnapshot() } : item);
-    if (scope === 'character') { setCharacterPresets(next); savePresets(scope, next, primaryCharacterId); }
-    else { setGlobalPresets(next); savePresets(scope, next); }
-    setStorageInfo(`Updated ${scope} preset.`);
+    const picked = current.find((item) => item.id === id);
+    if (!picked) return;
+    try {
+      const response = await fetch('/api/generation-presets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: presetName.trim() || picked.name, data: createFormSnapshot() }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A recept frissítése sikertelen.');
+      const saved = body.preset as GenerateFormPreset;
+      const next = current.map((item) => item.id === id ? saved : item).sort((a, b) => b.updatedAt - a.updatedAt);
+      if (scope === 'character') setCharacterPresets(next);
+      else setGlobalPresets(next);
+      setStorageInfo('Recept frissítve.');
+    } catch (error: any) {
+      setStorageInfo(error?.message || 'A recept frissítése sikertelen.');
+    }
   };
 
   const loadPresetById = (scope: 'character' | 'global', id: string) => {
@@ -338,12 +434,20 @@ export default function CharacterDetailPage() {
     applyFormSnapshot(picked.data); setPresetName(picked.name); setStorageInfo(`Loaded ${scope} preset: ${picked.name}`);
   };
 
-  const deletePresetById = (scope: 'character' | 'global', id: string) => {
+  const deletePresetById = async (scope: 'character' | 'global', id: string) => {
     const source = scope === 'character' ? characterPresets : globalPresets;
-    const next = source.filter((item) => item.id !== id);
-    if (scope === 'character') { setCharacterPresets(next); savePresets(scope, next, primaryCharacterId); setSelectedCharacterPresetId(''); }
-    else { setGlobalPresets(next); savePresets(scope, next); setSelectedGlobalPresetId(''); if (localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY) === id) localStorage.removeItem(GLOBAL_DEFAULT_PRESET_KEY); }
-    setStorageInfo(`Deleted ${scope} preset.`);
+    if (!source.some((item) => item.id === id)) return;
+    try {
+      const response = await fetch('/api/generation-presets?id=' + encodeURIComponent(id), { method: 'DELETE' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || 'A recept törlése sikertelen.');
+      const next = source.filter((item) => item.id !== id);
+      if (scope === 'character') { setCharacterPresets(next); setSelectedCharacterPresetId(''); }
+      else { setGlobalPresets(next); setSelectedGlobalPresetId(''); if (localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY) === id) localStorage.removeItem(GLOBAL_DEFAULT_PRESET_KEY); }
+      setStorageInfo('Recept törölve.');
+    } catch (error: any) {
+      setStorageInfo(error?.message || 'A recept törlése sikertelen.');
+    }
   };
 
   useEffect(() => {
@@ -391,19 +495,44 @@ export default function CharacterDetailPage() {
 
   useEffect(() => {
     if (!primaryCharacterId) return;
+    let canceled = false;
     hydratedRef.current = false;
-    setCharacterPresets(loadPresets('character', primaryCharacterId));
-    const globals = loadPresets('global');
-    setGlobalPresets(globals);
+    setCharacterPresets([]);
+    setGlobalPresets([]);
+
     const savedForm = parseStoredJson<GenerateFormState>(getCharacterFormKey(primaryCharacterId));
     if (savedForm) {
-      applyFormSnapshot(savedForm); setStorageInfo('Loaded last settings for this character.');
-    } else {
-      const defaultId = localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY);
-      const defaultPreset = defaultId ? globals.find((item) => item.id === defaultId) : undefined;
-      if (defaultPreset) { applyFormSnapshot(defaultPreset.data); setSelectedGlobalPresetId(defaultPreset.id); setStorageInfo(`Loaded global default preset: ${defaultPreset.name}`); }
+      applyFormSnapshot(savedForm);
+      setStorageInfo('A karakter utolsó beállításai betöltve.');
     }
-    hydratedRef.current = true;
+
+    void (async () => {
+      try {
+        const [characters, globals] = await Promise.all([
+          fetchGenerationPresets('character', primaryCharacterId),
+          fetchGenerationPresets('global'),
+        ]);
+        if (canceled) return;
+        setCharacterPresets(characters);
+        setGlobalPresets(globals);
+
+        if (!savedForm) {
+          const defaultId = localStorage.getItem(GLOBAL_DEFAULT_PRESET_KEY);
+          const defaultPreset = defaultId ? globals.find((item) => item.id === defaultId) : undefined;
+          if (defaultPreset) {
+            applyFormSnapshot(defaultPreset.data);
+            setSelectedGlobalPresetId(defaultPreset.id);
+            setStorageInfo(`Alapértelmezett recept betöltve: ${defaultPreset.name}`);
+          }
+        }
+      } catch (loadError: any) {
+        if (!canceled) setStorageInfo(loadError?.message || 'A receptek betöltése sikertelen.');
+      } finally {
+        if (!canceled) hydratedRef.current = true;
+      }
+    })();
+
+    return () => { canceled = true; };
   }, [primaryCharacterId]);
 
   useEffect(() => {
@@ -645,6 +774,84 @@ export default function CharacterDetailPage() {
     }
   };
 
+  const handleEnvironmentReferencesUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+
+    if (environmentReferenceImages.length + files.length + (selectedLibraryBackground ? 1 : 0) > 6) {
+      setEnvironmentReferenceError('Legfeljebb 6 környezeti referenciaképet adhatsz meg.');
+      return;
+    }
+    for (const file of files) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        setEnvironmentReferenceError('Csak JPG, PNG vagy WebP kép tölthető fel.');
+        return;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        setEnvironmentReferenceError(`Egy referencia-kép legfeljebb 8 MB lehet: ${file.name}`);
+        return;
+      }
+    }
+
+    setEnvironmentReferenceUploading(true);
+    setEnvironmentReferenceError('');
+    const uploaded: Array<{ path: string; url: string; name: string }> = [];
+    const createdPaths: string[] = [];
+    try {
+      const supabase = createSupabaseBrowserClient();
+      for (const file of files) {
+        const compressed = await compressBackgroundReference(file);
+        const createResponse = await fetch('/api/generate/background-reference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentType: 'image/jpeg', size: compressed.size }),
+        });
+        const createData = await createResponse.json();
+        if (!createResponse.ok) throw new Error(createData?.error || 'A referencia-kép feltöltésének előkészítése sikertelen.');
+        const path = String(createData.path || '');
+        const token = String(createData.token || '');
+        if (path) createdPaths.push(path);
+        if (!path || !token) throw new Error('Hiányzó feltöltési token.');
+
+        const { error: uploadError } = await supabase.storage
+          .from('v3-media')
+          .uploadToSignedUrl(path, token, compressed, { contentType: 'image/jpeg', cacheControl: '3600' });
+        if (uploadError) throw new Error(`A referencia-kép feltöltése sikertelen: ${uploadError.message}`);
+
+        const previewResponse = await fetch('/api/generate/background-reference?path=' + encodeURIComponent(path), { cache: 'no-store' });
+        const previewData = await previewResponse.json();
+        if (!previewResponse.ok) throw new Error(previewData?.error || 'A referencia-kép előnézete nem tölthető be.');
+        uploaded.push({ path, url: String(previewData.url || ''), name: file.name });
+      }
+      setEnvironmentReferenceImages((current) => [...current, ...uploaded]);
+    } catch (uploadError: any) {
+      await Promise.all(createdPaths.map(async (path) => {
+        try {
+          await fetch('/api/generate/background-reference', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path }),
+          });
+        } catch {}
+      }));
+      setEnvironmentReferenceError(uploadError?.message || 'A referencia-képek feltöltése sikertelen.');
+    } finally {
+      setEnvironmentReferenceUploading(false);
+    }
+  };
+
+  const removeEnvironmentReference = async (path: string) => {
+    setEnvironmentReferenceImages((current) => current.filter((item) => item.path !== path));
+    try {
+      await fetch('/api/generate/background-reference', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+    } catch {}
+  };
+
   const clearBackgroundReference = async () => {
     const path = backgroundReferencePath;
     setBackgroundReferencePath('');
@@ -667,15 +874,19 @@ export default function CharacterDetailPage() {
     persistHistoryValue(LIGHTING_HISTORY_KEY, lighting, lightingHistory, setLightingHistory);
     setLoading(true); setError(''); setResult(null); setCompareResult(null);
     try {
-      const characterIds = [primaryCharacterId, ...extraCharacterIds].filter(Boolean);
+      const characterIds = generationMode === 'background' ? [] : [primaryCharacterId, ...extraCharacterIds].filter(Boolean);
       const selectedAliasMap: Record<string, string> = {};
       for (const id of characterIds) if (aliasMap[id]?.trim()) selectedAliasMap[id] = aliasMap[id].trim();
       const compareStylePayload = compareMode && compareStyle !== style ? compareStyle : undefined;
       const response = await fetch('/api/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          characterId: primaryCharacterId, characterIds, aliasMap: selectedAliasMap, location, lighting, actionPrompt,
-          backgroundReferencePath: backgroundReferencePath || undefined,
+          generationMode,
+          characterId: generationMode === 'background' ? undefined : primaryCharacterId,
+          characterIds, aliasMap: selectedAliasMap, location, lighting, actionPrompt,
+          backgroundReferencePath: generationMode === 'character' ? backgroundReferencePath || undefined : undefined,
+          backgroundReferencePaths: generationMode === 'background' ? environmentReferenceImages.map((item) => item.path) : [],
+          backgroundReferenceGenerationIds: selectedLibraryBackground ? [selectedLibraryBackground.id] : [],
           scenePackage: { locationProfile: { preset: locationPreset, detail: location, geometry: locationGeometry, lightingAndTime: lighting, paletteAndTexture: locationPalette, fixedProps: locationProps, cameraContinuity: locationCameraContinuity }, continuity: { lockGeometry, lockLighting, lockPalette, lockProps, lockCameraRules, notes: continuityNotes.trim() || undefined }, bilingualInput: { sourceLanguage: 'mixed' } },
           camera, aspectRatio, style, styleIntensity, compareStyle: compareStylePayload,
         }),
@@ -685,10 +896,17 @@ export default function CharacterDetailPage() {
       setResult(data.image); setCompareResult(data.compareImage || null); setEditGenerationId(data.generationId || null);
     } catch (e: any) {
       setError(e?.message || 'Generation failed');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      if (generationMode === 'character' && backgroundReferencePath) {
+        setBackgroundReferencePath('');
+        setBackgroundReferenceUrl('');
+        setBackgroundReferenceError('');
+      }
+    }
   };
 
-  const selectedCharacters = [
+  const selectedCharacters = generationMode === 'background' ? [] : [
     ...(character ? [character] : []),
     ...extraCharacterIds.map((id) => allCharacters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)),
   ];
@@ -716,21 +934,23 @@ export default function CharacterDetailPage() {
     setActiveTab('animate');
   };
 
+  const handleUseBackgroundAsReference = (image: LibraryBackground) => { setSelectedLibraryBackground(image); setGenerationMode('character'); setActiveTab('generate'); };
+
   const locationPresetCount = useMemo(() => locationPresetOptions.length, [locationPresetOptions]);
   const isPaid = userPlan === 'paid' || userPlan === 'admin';
   if (!character) return <LoadingScreen />;
 
   return (
-    <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-6">
-      <div className="w-full max-w-6xl px-6 md:px-0">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold tracking-tight">Új jelenet</h1>
+    <main className="min-h-screen bg-black text-gray-100 font-mono flex flex-col items-center mt-1 xl:mt-0 xl:h-[calc(100vh-64px)] xl:min-h-0 xl:overflow-hidden">
+      <div className="w-full max-w-none px-3 xl:px-4 xl:h-full xl:min-h-0 xl:flex xl:flex-col">
+        <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold tracking-tight">{generationMode === "background" ? "Új háttér" : "Új jelenet"}</h1>
 
           <div className="flex min-w-0 items-center justify-end gap-3">
             <div className="max-w-[220px] truncate text-right text-sm font-semibold text-gray-300">
-              {character.name}
+              {generationMode === "background" ? "SZEREPLŐ NÉLKÜL" : character.name}
             </div>
-            {(character.imagePaths || []).slice(0, 1).map((img: string, i: number) => (
+            {generationMode === "character" && (character.imagePaths || []).slice(0, 1).map((img: string, i: number) => (
               <button
                 key={i}
                 type="button"
@@ -751,23 +971,26 @@ export default function CharacterDetailPage() {
           </div>
         </div>
 
-        <div className="flex gap-1 mb-4 bg-zinc-950 rounded-lg border border-gray-800 p-1">
-          {(['generate', ...(isPaid ? ['animate'] : []), 'gallery'] as Tab[]).map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`flex-1 py-2 rounded text-sm font-semibold ${activeTab === tab ? 'bg-zinc-800 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-zinc-800'}`}>{tab === 'generate' ? '✨ ' : tab === 'animate' ? '▶ ' : '🖼 '}{tab === 'generate' ? 'Generálás' : tab === 'animate' ? 'Videó' : 'Galéria'}</button>)}
+        <div className="flex shrink-0 gap-1 mb-2 bg-zinc-950 rounded-lg border border-gray-800 p-1">
+          {(['generate', ...(isPaid ? ['animate'] : []), 'gallery', 'backgrounds'] as Tab[]).map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`flex-1 py-2 rounded text-sm font-semibold ${activeTab === tab ? 'bg-zinc-800 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-zinc-800'}`}>{tab === 'generate' ? '✨ ' : tab === 'animate' ? '▶ ' : tab === 'backgrounds' ? '▧ ' : '🖼 '}{tab === 'generate' ? 'Generálás' : tab === 'animate' ? 'Videó' : tab === 'backgrounds' ? 'Háttérkönyvtár' : 'Galéria'}</button>)}
         </div>
 
-        <div className="bg-zinc-950 rounded-lg">
+        <div className={`bg-zinc-950 rounded-lg p-2 xl:p-3 xl:flex-1 xl:min-h-0 ${activeTab === 'gallery' || activeTab === 'backgrounds' ? 'xl:overflow-y-auto' : 'xl:overflow-hidden'}`}>
           {activeTab === 'generate' && (
             <>
+              <div className="xl:grid xl:h-full xl:min-h-0 xl:grid-cols-[minmax(400px,0.72fr)_minmax(0,1.28fr)] xl:gap-4">
+                <section className="xl:flex xl:min-h-0 xl:flex-col">
               {!isPaid && (
-                <div className="mb-4 rounded-lg border border-gray-800 bg-zinc-950 p-4 text-xs text-zinc-500">
-                  FREE mód · 6 ingyenes kredit · alap generátor
+                <div className="mb-2 rounded-lg border border-gray-800 bg-zinc-950 p-2 xl:p-2 text-xs text-zinc-500">
+                  FREE mód · 3 ingyenes kredit · alap generátor
                 </div>
               )}
 
-              <form onSubmit={handleGenerate} className="mb-8 space-y-4">
+              <form onSubmit={handleGenerate} className="mb-2 space-y-4 xl:mb-0 xl:space-y-0 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+                <div className="space-y-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2 xl:pb-2">
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <label className="text-sm font-semibold text-gray-300">Helyszín</label>
+                    <label className="text-sm font-semibold text-gray-300">{generationMode === "background" ? "Helyszín / környezet" : "Helyszín"}</label>
                     <select
                       className="w-full sm:w-auto sm:min-w-[280px] rounded bg-gray-900 border border-gray-700 p-2 text-sm"
                       value={locationPreset}
@@ -778,19 +1001,20 @@ export default function CharacterDetailPage() {
                     </select>
                   </div>
                   <textarea
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 xl:p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    rows={3}
-                    placeholder="Hol történjen a jelenet? A preset az alap környezetet adja, ezt itt pontosíthatod."
+                    rows={2}
+                    placeholder={generationMode === "background" ? "Írd le a hátteret: például üres budapesti bérházfolyosó hajnalban, szereplők nélkül…" : "Hol történjen a jelenet? A preset az alap környezetet adja, ezt itt pontosíthatod."}
                   />
                 </div>
 
-                <div className="space-y-3 rounded-lg border border-gray-800 bg-zinc-950 p-4">
+                {generationMode === 'character' && (
+                <div className="space-y-2 rounded-lg border border-gray-800 bg-zinc-950 p-3 xl:p-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <label className="text-sm font-semibold text-gray-300">Háttér-referencia <span className="font-normal text-gray-600">opcionális</span></label>
-                      <div className="mt-1 text-[11px] leading-5 text-gray-600">
+                      <div className="mt-1 text-[11px] leading-5 text-gray-600 xl:hidden">
                         Az AI a kép környezetét és kompozícióját veszi alapul, majd újraépíti a jelenetet a figurádhoz igazítva.
                       </div>
                     </div>
@@ -817,7 +1041,7 @@ export default function CharacterDetailPage() {
                       <img
                         src={backgroundReferenceUrl}
                         alt="Háttér-referencia előnézete"
-                        className="max-h-72 w-full object-contain"
+                        className="max-h-40 xl:max-h-36 w-full object-contain"
                       />
                       <button
                         type="button"
@@ -835,18 +1059,26 @@ export default function CharacterDetailPage() {
                       type="button"
                       onClick={() => backgroundReferenceInputRef.current?.click()}
                       disabled={backgroundReferenceUploading || loading}
-                      className="flex min-h-24 w-full items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/20 text-xs text-gray-600 transition hover:border-gray-600 hover:text-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex min-h-12 xl:min-h-10 w-full items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/20 text-xs text-gray-600 transition hover:border-gray-600 hover:text-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Kattints és válassz képet a gépedről
                     </button>
                   )}
 
+                  {selectedLibraryBackground && (
+                    <div className="flex items-center gap-3 rounded-lg border border-gray-800 bg-black p-2">
+                      <img src={selectedLibraryBackground.url} alt="Kiválasztott háttérkönyvtári referencia" className="h-14 w-24 rounded object-contain bg-zinc-950" />
+                      <div className="min-w-0 flex-1"><div className="text-xs font-medium text-gray-300">Háttérkönyvtári referencia</div><div className="truncate text-[10px] text-gray-600">{selectedLibraryBackground.filename}</div></div>
+                      <button type="button" onClick={() => setSelectedLibraryBackground(null)} className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-400 hover:text-white">Eltávolítás</button>
+                    </div>
+                  )}
                   {backgroundReferenceError && (
                     <div className="rounded-lg border border-red-900 bg-red-950/30 px-3 py-2 text-xs text-red-300">
                       {backgroundReferenceError}
                     </div>
                   )}
                 </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -867,7 +1099,7 @@ export default function CharacterDetailPage() {
                     </select>
                   </div>
                   <input
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={lighting}
                     onChange={(e) => setLighting(e.target.value)}
                     list="lighting-history"
@@ -880,96 +1112,162 @@ export default function CharacterDetailPage() {
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-sm font-semibold text-gray-300">Mi történjen?</label>
+                  <label className="block mb-1 text-sm font-semibold text-gray-300">{generationMode === "background" ? "További környezeti részletek" : "Mi történjen?"}</label>
                   <textarea
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={actionPrompt}
                     onChange={(e) => setActionPrompt(e.target.value)}
-                    rows={4}
-                    placeholder="Írd le, mit csináljon a karakter."
+                    rows={2}
+                    placeholder={generationMode === "background" ? "Anyagok, berendezés, tárgyak, időjárás, atmoszféra, kompozíció…" : "Írd le, mit csináljon a karakter."}
                   />
                 </div>
 
-                <div className="rounded-lg border border-gray-800 bg-zinc-950 p-4">
+                <div className="rounded-lg border border-gray-800 bg-zinc-950 p-3 xl:p-2">
                   <div className="text-sm font-semibold text-gray-300 mb-3">Szereplők</div>
 
-                  <div className="flex gap-2 mb-3">
+                  <div className="grid grid-cols-3 gap-2 mb-3">
                     <button
                       type="button"
-                      onClick={() => { setExtraCharacterIds([]); setPendingCharacterId(""); }}
-                      className={selectedCharacters.length === 1 ? "flex-1 px-3 py-2 rounded border border-white bg-white text-black text-xs font-semibold" : "flex-1 px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
+                      onClick={() => setGenerationMode('background')}
+                      className={generationMode === 'background' ? "rounded border border-white bg-white px-2 py-2 text-black text-xs font-semibold" : "rounded border border-gray-700 px-2 py-2 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
+                    >
+                      0 karakter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setGenerationMode('character'); setExtraCharacterIds([]); setPendingCharacterId(''); }}
+                      className={generationMode === 'character' && selectedCharacters.length === 1 ? "rounded border border-white bg-white px-2 py-2 text-black text-xs font-semibold" : "rounded border border-gray-700 px-2 py-2 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
                     >
                       1 karakter
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPendingCharacterId((current) => current || availableCharacters[0]?.id || "")}
+                      onClick={() => { setGenerationMode('character'); setPendingCharacterId((current) => current || availableCharacters[0]?.id || ''); }}
                       disabled={!availableCharacters.length}
-                      className={selectedCharacters.length > 1 ? "flex-1 px-3 py-2 rounded border border-white bg-white text-black text-xs font-semibold" : "flex-1 px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold"}
+                      className={generationMode === 'character' && (selectedCharacters.length > 1 || Boolean(pendingCharacterId)) ? "rounded border border-white bg-white px-2 py-2 text-black text-xs font-semibold" : "rounded border border-gray-700 px-2 py-2 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"}
                     >
                       2 karakter
                     </button>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {selectedCharacters.map((item) => (
-                      <span key={item.id} className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
-                        {item.name}
-                      </span>
-                    ))}
-                  </div>
+                  {generationMode === 'background' ? (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-gray-800 bg-black/30 p-3">
+                        <div className="text-xs font-semibold text-gray-200">Önálló háttérgenerálás</div>
+                        <p className="mt-1 text-[11px] leading-5 text-gray-500">Nem készül karakter-DNS, és a prompt kifejezetten szereplők nélküli helyszínt kér. Több referenciaképpel is megadhatod az építészetet, anyagokat, fényeket és kompozíciót.</p>
+                      </div>
 
-                  <div className="flex gap-2">
-                    <select
-                      className="flex-1 p-2 rounded bg-gray-900 border border-gray-700 text-sm"
-                      value={pendingCharacterId}
-                      onChange={(e) => setPendingCharacterId(e.target.value)}
-                    >
-                      <option value="">+ Második karakter</option>
-                      {availableCharacters.map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={addExtraCharacter}
-                      disabled={!pendingCharacterId}
-                      className="px-3 py-2 rounded bg-gray-800 border border-gray-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Hozzáadás
-                    </button>
-                  </div>
+                      <input
+                        ref={environmentReferenceInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        className="hidden"
+                        onChange={handleEnvironmentReferencesUpload}
+                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length + (selectedLibraryBackground ? 1 : 0) >= 6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => environmentReferenceInputRef.current?.click()}
+                        disabled={environmentReferenceUploading || loading || environmentReferenceImages.length + (selectedLibraryBackground ? 1 : 0) >= 6}
+                        className="flex min-h-11 w-full items-center justify-center rounded-lg border border-dashed border-gray-700 bg-black/20 px-3 py-2 text-xs font-semibold text-gray-300 transition hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {environmentReferenceUploading ? 'Referenciaképek feltöltése…' : '＋ Referenciaképek hozzáadása'}
+                      </button>
+                      <div className="text-[10px] text-gray-600">{environmentReferenceImages.length + (selectedLibraryBackground ? 1 : 0)} / 6 referencia kiválasztva</div>
 
-                  {selectedCharacters.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => { setExtraCharacterIds([]); setPendingCharacterId(""); }}
-                      className="mt-3 text-xs px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
-                    >
-                      Vissza 1 karakterre
-                    </button>
-                  )}
-
-                  {isPaid && selectedCharacters.length > 1 && (
-                    <div className="mt-3 space-y-2">
-                      {selectedCharacters.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2">
-                          <div className="w-40 text-xs text-gray-400 truncate">{item.name}</div>
-                          <input
-                            className="w-28 p-1.5 rounded bg-gray-900 border border-gray-700 text-xs"
-                            value={aliasMap[item.id] || ""}
-                            onChange={(e) => setAliasMap((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            placeholder="Alias"
-                            maxLength={12}
-                          />
-                          {item.id !== primaryCharacterId && (
-                            <button type="button" onClick={() => removeExtraCharacter(item.id)} className="text-xs px-2 py-1 rounded border border-gray-700">
-                              Törlés
-                            </button>
-                          )}
+                      {environmentReferenceImages.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {environmentReferenceImages.map((image) => (
+                            <div key={image.path} className="relative overflow-hidden rounded-lg border border-gray-800 bg-black">
+                              <img src={image.url} alt={image.name} className="aspect-video w-full object-contain" />
+                              <div className="truncate px-2 py-1 text-[10px] text-gray-500">{image.name}</div>
+                              <button type="button" onClick={() => void removeEnvironmentReference(image.path)} disabled={loading} className="absolute right-1 top-1 rounded bg-black/80 px-2 py-1 text-[10px] text-white hover:bg-red-950">×</button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
+                      {environmentReferenceError && <div className="rounded-lg border border-red-900 bg-red-950/30 px-3 py-2 text-xs text-red-300">{environmentReferenceError}</div>}
+
+                      {selectedLibraryBackground && (
+                        <div className="flex items-center gap-3 rounded-lg border border-gray-800 bg-black p-2">
+                          <img src={selectedLibraryBackground.url} alt="Kiválasztott háttérkönyvtári referencia" className="h-14 w-24 rounded bg-zinc-950 object-contain" />
+                          <div className="min-w-0 flex-1"><div className="text-xs font-medium text-gray-300">Háttérkönyvtári referencia</div><div className="truncate text-[10px] text-gray-600">{selectedLibraryBackground.filename}</div></div>
+                          <button type="button" onClick={() => setSelectedLibraryBackground(null)} className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-400 hover:text-white">Eltávolítás</button>
+                        </div>
+                      )}
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {selectedCharacters.map((item) => (
+                          <span key={item.id} className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
+                            {item.name}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <select
+                          className="flex-1 p-2 rounded bg-gray-900 border border-gray-700 text-sm"
+                          value={pendingCharacterId}
+                          onChange={(e) => setPendingCharacterId(e.target.value)}
+                        >
+                          <option value="">+ Második karakter</option>
+                          {availableCharacters.map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={addExtraCharacter}
+                          disabled={!pendingCharacterId}
+                          className="px-3 py-2 rounded bg-gray-800 border border-gray-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Hozzáadás
+                        </button>
+                      </div>
+
+                      {selectedCharacters.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => { setExtraCharacterIds([]); setPendingCharacterId(''); }}
+                          className="mt-3 text-xs px-3 py-2 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
+                        >
+                          Vissza 1 karakterre
+                        </button>
+                      )}
+
+                      {selectedLibraryBackground && (
+                        <div className="mt-3 flex items-center gap-3 rounded-lg border border-gray-800 bg-black p-2">
+                          <img src={selectedLibraryBackground.url} alt="Kiválasztott háttérkönyvtári referencia" className="h-14 w-24 rounded bg-zinc-950 object-contain" />
+                          <div className="min-w-0 flex-1"><div className="text-xs font-medium text-gray-300">Háttérkönyvtári referencia</div><div className="truncate text-[10px] text-gray-600">{selectedLibraryBackground.filename}</div></div>
+                          <button type="button" onClick={() => setSelectedLibraryBackground(null)} className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-400 hover:text-white">Eltávolítás</button>
+                        </div>
+                      )}
+
+                      {isPaid && selectedCharacters.length > 1 && (
+                        <div className="mt-3 space-y-2">
+                          {selectedCharacters.map((item) => (
+                            <div key={item.id} className="flex items-center gap-2">
+                              <div className="w-40 text-xs text-gray-400 truncate">{item.name}</div>
+                              <input
+                                className="w-28 p-1.5 rounded bg-gray-900 border border-gray-700 text-xs"
+                                value={aliasMap[item.id] || ""}
+                                onChange={(e) => setAliasMap((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                placeholder="Alias"
+                                maxLength={12}
+                              />
+                              {item.id !== primaryCharacterId && (
+                                <button type="button" onClick={() => removeExtraCharacter(item.id)} className="text-xs px-2 py-1 rounded border border-gray-700">
+                                  Törlés
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -978,7 +1276,7 @@ export default function CharacterDetailPage() {
                     <label className="text-sm font-semibold text-gray-300">Kamera</label>
                     <span className="text-[10px] text-gray-600">objektív · nézőpont · látószög · perspektíva</span>
                   </div>
-                  <select className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm" value={camera} onChange={(e) => setCamera(e.target.value)}>
+                  <select className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm" value={camera} onChange={(e) => setCamera(e.target.value)}>
                     {cameraOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
@@ -986,7 +1284,7 @@ export default function CharacterDetailPage() {
                 <div>
                   <label className="block mb-1 text-sm font-semibold text-gray-300">Képarány</label>
                   <select
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={aspectRatio}
                     onChange={(e) => setAspectRatio(e.target.value as AspectRatio16x9)}
                   >
@@ -997,7 +1295,7 @@ export default function CharacterDetailPage() {
                 <div>
                   <label className="block mb-1 text-sm font-semibold text-gray-300">Stílus</label>
                   <select
-                    className="w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+                    className="w-full p-2 rounded bg-gray-900 border border-gray-700 text-sm"
                     value={style}
                     onChange={(e) => setStyle(e.target.value)}
                   >
@@ -1079,34 +1377,46 @@ export default function CharacterDetailPage() {
                   </>
                 )}
 
+                </div>
+                <div className="mt-3 shrink-0 border-t border-gray-800 pt-3">
                 {error && <div className="text-red-400 text-sm bg-red-950/50 border border-red-900 rounded px-3 py-2">{error}</div>}
 
-                <button type="submit" disabled={loading || backgroundReferenceUploading} className="w-full bg-white hover:bg-gray-200 text-black disabled:opacity-50 py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2">
+                <button type="submit" disabled={loading || backgroundReferenceUploading} className="w-full xl:col-span-2 bg-white hover:bg-gray-200 text-black disabled:opacity-50 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2">
                   {loading ? 'Generálás…' : '✨ Kép generálása'}
                 </button>
+                </div>
               </form>
-
-              {result && (
+              </section>
+              <section className="mt-3 rounded-lg border border-gray-800 bg-black/30 p-3 xl:mt-0 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
+                <div className="mb-3 flex shrink-0 items-center justify-between gap-3 border-b border-gray-800 pb-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-gray-600">LIVE OUTPUT</div>
+                    <h2 className="mt-1 text-sm font-semibold text-gray-200">Generált eredmény</h2>
+                  </div>
+                  <span className="text-[10px] text-gray-600">{compareResult ? "A/B összehasonlítás" : result ? "Kép kész" : loading ? "Generálás folyamatban…" : "Várakozik"}</span>
+                </div>
+                <div className="min-h-[300px] xl:min-h-0 xl:flex-1 xl:overflow-y-auto rounded-lg bg-zinc-950 p-2">
+              {result ? (
                 <div className="space-y-4">
                   {compareResult ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-gray-900 rounded p-3">
                         <div className="text-xs text-gray-400 mb-2">A: {style}</div>
                         <button type="button" className="w-full" onClick={() => setPreviewImage(result)}>
-                          <img src={result} alt="A" className="rounded w-full cursor-zoom-in" />
+                          <img src={result} alt="A" className="max-h-[calc(100vh-270px)] w-full rounded object-contain cursor-zoom-in" />
                         </button>
                       </div>
                       <div className="bg-gray-900 rounded p-3">
                         <div className="text-xs text-gray-400 mb-2">B: {compareStyle}</div>
                         <button type="button" className="w-full" onClick={() => setPreviewImage(compareResult)}>
-                          <img src={compareResult} alt="B" className="rounded w-full cursor-zoom-in" />
+                          <img src={compareResult} alt="B" className="max-h-[calc(100vh-270px)] w-full rounded object-contain cursor-zoom-in" />
                         </button>
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-3 w-full">
                       <button type="button" className="focus:outline-none rounded" onClick={() => setPreviewImage(result)}>
-                        <img src={result} alt="Generated scene" className="rounded shadow-lg max-w-full cursor-zoom-in" />
+                        <img src={result} alt="Generated scene" className="max-h-[calc(100vh-270px)] max-w-full rounded object-contain shadow-lg cursor-zoom-in" />
                       </button>
                       {editGenerationId && (
                         <button
@@ -1120,7 +1430,18 @@ export default function CharacterDetailPage() {
                     </div>
                   )}
                 </div>
+              ) : (
+                <div className="flex min-h-[300px] xl:min-h-full items-center justify-center p-8 text-center">
+                  <div className="max-w-md">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-gray-800 bg-black text-2xl">✳</div>
+                    <div className="text-sm font-semibold text-gray-300">A generált kép itt jelenik meg</div>
+                    <p className="mt-2 text-xs leading-5 text-gray-600">Állítsd be a jelenetet bal oldalon, majd indítsd el a generálást. Az eredmény ezen a panelen marad.</p>
+                  </div>
+                </div>
               )}
+                </div>
+              </section>
+              </div>
             </>
           )}
 
@@ -1131,6 +1452,10 @@ export default function CharacterDetailPage() {
               initialSelectedUrl={animatePreselectedUrl || undefined}
               characterIds={[primaryCharacterId, ...extraCharacterIds].filter(Boolean)}
             />
+          )}
+
+          {activeTab === 'backgrounds' && (
+            <BackgroundLibrary onUseAsReference={handleUseBackgroundAsReference} />
           )}
 
           {activeTab === 'gallery' && (

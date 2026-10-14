@@ -39,7 +39,8 @@ export async function middleware(request: NextRequest) {
     (pathname.startsWith('/api/credits') && pathname !== '/api/credits/packages') ||
     pathname.startsWith('/api/characters') ||
     pathname.startsWith('/api/generated') ||
-    pathname.startsWith('/api/presets');
+    pathname.startsWith('/api/presets') ||
+    pathname.startsWith('/api/generation-presets');
 
   if ((isProtectedPage || isProtectedApi) && !user) {
     if (isProtectedApi) {
@@ -64,5 +65,6 @@ export const config = {
     '/api/characters/:path*',
     '/api/generated/:path*',
     '/api/presets/:path*',
+    '/api/generation-presets/:path*',
   ],
 };

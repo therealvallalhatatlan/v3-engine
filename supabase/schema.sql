@@ -42,8 +42,9 @@ create table if not exists public.generation_events (
 create table if not exists public.generated_images (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references public.profiles(id) on delete cascade,
-  character_id uuid not null references public.characters(id) on delete cascade,
+  character_id uuid references public.characters(id) on delete cascade,
   character_ids jsonb not null default '[]'::jsonb,
+  generation_type text not null default 'character' check (generation_type in ('character', 'background')),
   storage_path text not null,
   prompt text,
   style text,
@@ -88,11 +89,74 @@ insert into storage.buckets (id, name, public)
 values ('v3-media', 'v3-media', false)
 on conflict (id) do nothing;
 
+create table if not exists public.video_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  character_id uuid not null references public.characters(id) on delete cascade,
+  character_ids jsonb not null default '[]'::jsonb,
+  duo_key text,
+  source_image_url text not null,
+  last_frame_image_url text,
+  prompt text not null,
+  duration_seconds integer not null default 5 check (duration_seconds between 1 and 20),
+  provider text not null default 'replicate',
+  external_job_id text,
+  status text not null default 'queued' check (status in ('queued','processing','done','failed','canceled')),
+  video_storage_path text,
+  provider_video_url text,
+  error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  started_at timestamptz,
+  completed_at timestamptz
+);
+
+create index if not exists video_jobs_user_id_idx on public.video_jobs(user_id);
+create index if not exists video_jobs_character_id_idx on public.video_jobs(character_id);
+create index if not exists video_jobs_external_job_id_idx on public.video_jobs(external_job_id);
+create index if not exists video_jobs_status_idx on public.video_jobs(status);
+
+create table if not exists public.generation_presets (
+  id text primary key,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  scope text not null check (scope in ('global', 'character')),
+  character_id uuid references public.characters(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint generation_presets_scope_character_check check ((scope = 'global' and character_id is null) or (scope = 'character' and character_id is not null))
+);
+create index if not exists generation_presets_user_scope_idx on public.generation_presets(user_id, scope, updated_at desc);
+create index if not exists generation_presets_character_idx on public.generation_presets(user_id, character_id, updated_at desc);
+
+create table if not exists public.preset_catalog (
+  id text primary key,
+  preset_type text not null check (preset_type in ('location', 'camera', 'style')),
+  preset_key text not null,
+  label text not null,
+  prompt text not null default '',
+  negative text,
+  builtin boolean not null default false,
+  default_label text,
+  default_prompt text,
+  default_negative text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint preset_catalog_type_key_unique unique (preset_type, preset_key)
+);
+
+create index if not exists preset_catalog_type_key_idx
+  on public.preset_catalog(preset_type, preset_key);
+
 alter table public.profiles enable row level security;
 alter table public.characters enable row level security;
 alter table public.character_images enable row level security;
 alter table public.generation_events enable row level security;
 alter table public.generated_images enable row level security;
+alter table public.video_jobs enable row level security;
+alter table public.generation_presets enable row level security;
+alter table public.preset_catalog enable row level security;
 alter table public.credit_transactions enable row level security;
 alter table public.purchases enable row level security;
 
@@ -142,7 +206,34 @@ drop policy if exists "own_generation_events_select" on public.generation_events
 create policy "own_generation_events_select" on public.generation_events for select using (user_id = auth.uid());
 
 drop policy if exists "owned_generated_images_select" on public.generated_images;
+drop policy if exists "own_video_jobs_select" on public.video_jobs;
+create policy "own_video_jobs_select" on public.video_jobs for select using (user_id = auth.uid());
+drop policy if exists "own_video_jobs_insert" on public.video_jobs;
+drop policy if exists "own_video_jobs_update" on public.video_jobs;
+create policy "own_video_jobs_update" on public.video_jobs for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 create policy "owned_generated_images_select" on public.generated_images for select using (owner_id = auth.uid());
+grant select, insert, update, delete on public.preset_catalog to authenticated;
+
+drop policy if exists "preset_catalog_authenticated_select" on public.preset_catalog;
+grant select, insert, update, delete on public.generation_presets to authenticated;
+drop policy if exists generation_presets_owner_select on public.generation_presets;
+create policy generation_presets_owner_select on public.generation_presets for select to authenticated using (user_id = auth.uid());
+drop policy if exists generation_presets_owner_insert on public.generation_presets;
+create policy generation_presets_owner_insert on public.generation_presets for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists generation_presets_owner_update on public.generation_presets;
+create policy generation_presets_owner_update on public.generation_presets for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists generation_presets_owner_delete on public.generation_presets;
+create policy generation_presets_owner_delete on public.generation_presets for delete to authenticated using (user_id = auth.uid());
+
+create policy "preset_catalog_authenticated_select" on public.preset_catalog for select to authenticated using (auth.uid() is not null);
+drop policy if exists "preset_catalog_admin_insert" on public.preset_catalog;
+create policy "preset_catalog_admin_insert" on public.preset_catalog for insert to authenticated with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
+drop policy if exists "preset_catalog_admin_update" on public.preset_catalog;
+create policy "preset_catalog_admin_update" on public.preset_catalog for update to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin')) with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
+drop policy if exists "preset_catalog_admin_delete" on public.preset_catalog;
+create policy "preset_catalog_admin_delete" on public.preset_catalog for delete to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.plan = 'admin'));
+
 
 drop policy if exists "owned_generated_images_insert" on public.generated_images;
 create policy "owned_generated_images_insert" on public.generated_images for insert with check (owner_id = auth.uid());
@@ -167,6 +258,61 @@ create policy "v3_media_update_own" on storage.objects for update using (bucket_
 
 drop policy if exists "v3_media_delete_own" on storage.objects;
 create policy "v3_media_delete_own" on storage.objects for delete using (bucket_id = 'v3-media' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create or replace function public.create_video_job_if_available(
+  p_user_id uuid,
+  p_character_id uuid,
+  p_character_ids jsonb,
+  p_duo_key text,
+  p_source_image_url text,
+  p_last_frame_image_url text,
+  p_prompt text,
+  p_duration_seconds integer,
+  p_provider text default 'replicate',
+  p_max_active integer default 2
+)
+returns setof public.video_jobs
+language plpgsql
+security definer
+set search_path = public
+as $
+begin
+  if auth.uid() is null or auth.uid() <> p_user_id then
+    raise exception using errcode = '42501', message = 'not_authorized';
+  end if;
+
+  if p_duration_seconds not in (5, 8, 10, 15, 20) then
+    raise exception using errcode = '22023', message = 'unsupported_video_duration';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(p_user_id::text));
+
+  if (
+    select count(*)
+    from public.video_jobs
+    where user_id = p_user_id
+      and status in ('queued', 'processing')
+  ) >= greatest(1, least(coalesce(p_max_active, 2), 2)) then
+    raise exception using errcode = 'P0001', message = 'video_job_limit_reached';
+  end if;
+
+  return query
+    insert into public.video_jobs (
+      user_id, character_id, character_ids, duo_key,
+      source_image_url, last_frame_image_url, prompt,
+      duration_seconds, provider, status, started_at
+    )
+    values (
+      p_user_id, p_character_id, coalesce(p_character_ids, '[]'::jsonb), p_duo_key,
+      p_source_image_url, p_last_frame_image_url, p_prompt,
+      p_duration_seconds, coalesce(p_provider, 'replicate'), 'queued', now()
+    )
+    returning *;
+end;
+$;
+
+revoke all on function public.create_video_job_if_available(uuid, uuid, jsonb, text, text, text, text, integer, text, integer) from public;
+grant execute on function public.create_video_job_if_available(uuid, uuid, jsonb, text, text, text, text, integer, text, integer) to authenticated;
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public

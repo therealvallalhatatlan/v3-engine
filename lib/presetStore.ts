@@ -20,6 +20,9 @@ export type PresetRecord = {
 
 const PRESETS_FILE = 'presets.json';
 
+// Per-instance cache; the shared source of truth is Supabase in deployed environments.
+let runtimePresetCache: PresetRecord[] | null = null;
+
 function normalizePreset(raw: any): PresetRecord | null {
   if (!raw || typeof raw !== 'object') return null;
   if (!['location', 'camera', 'style'].includes(raw.type)) return null;
@@ -86,12 +89,19 @@ function migrateBuiltins(): PresetRecord[] {
 
   const custom = existing.filter((item) => !item.builtin && !BUILTIN_PRESETS.some((builtin) => builtin.type === item.type && builtin.key === item.key));
   const merged = unique([...builtins, ...custom]);
-  if (JSON.stringify(raw) !== JSON.stringify(merged)) writeJSON(PRESETS_FILE, merged);
+  if (!process.env.VERCEL && JSON.stringify(raw) !== JSON.stringify(merged)) writeJSON(PRESETS_FILE, merged);
   return merged;
 }
 
 export function getAllPresets(): PresetRecord[] {
-  return migrateBuiltins();
+  if (runtimePresetCache) return runtimePresetCache;
+  runtimePresetCache = migrateBuiltins();
+  return runtimePresetCache;
+}
+
+/** Replace the per-instance lookup cache with the current shared catalog from Supabase. */
+export function setPresetCatalog(presets: PresetRecord[]): void {
+  runtimePresetCache = unique(presets);
 }
 
 export function getPresetsByType(type: PresetType): PresetRecord[] {
@@ -114,8 +124,13 @@ export function addCustomPreset(input: Pick<PresetRecord, 'type' | 'key' | 'labe
 }
 
 export function saveAllPresets(presets: PresetRecord[]): void {
-  initStorage();
-  writeJSON(PRESETS_FILE, unique(presets));
+  const normalized = unique(presets);
+  runtimePresetCache = normalized;
+  // Keep local development backward-compatible; Vercel's filesystem is ephemeral.
+  if (!process.env.VERCEL) {
+    initStorage();
+    writeJSON(PRESETS_FILE, normalized);
+  }
 }
 
 export function updatePreset(id: string, updates: Partial<Pick<PresetRecord, 'key' | 'label' | 'prompt' | 'negative'>>): PresetRecord | null {

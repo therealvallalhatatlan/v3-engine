@@ -38,7 +38,7 @@ function characterReferenceInputs(character: { imagePaths?: string[] }, max = MA
 async function getOwnedGeneration(supabase: any, userId: string, generationId: string) {
   const { data, error } = await supabase
     .from('generated_images')
-    .select('id, owner_id, character_id, character_ids, storage_path, prompt, style, camera, aspect_ratio, variant, credit_cost, parent_generation_id, edit_index, edit_session_id, edit_instruction, gemini_interaction_id, created_at')
+    .select('id, owner_id, character_id, character_ids, generation_type, storage_path, prompt, style, camera, aspect_ratio, variant, credit_cost, parent_generation_id, edit_index, edit_session_id, edit_instruction, gemini_interaction_id, created_at')
     .eq('id', generationId)
     .eq('owner_id', userId)
     .maybeSingle();
@@ -371,6 +371,7 @@ export async function POST(req: NextRequest) {
       owner_id: user.id,
       character_id: currentGeneration.character_id,
       character_ids: allCharacterIds,
+      generation_type: allCharacterIds.length > 0 ? 'character' : currentGeneration.generation_type || 'character',
       storage_path: storagePath,
       prompt,
       style: currentGeneration.style,

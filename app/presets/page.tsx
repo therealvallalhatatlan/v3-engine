@@ -33,6 +33,7 @@ export default function PresetsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -50,6 +51,13 @@ export default function PresetsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((account) => setIsAdmin(account?.plan === 'admin'))
+      .catch(() => setIsAdmin(false));
+  }, []);
 
   const filtered = useMemo(() => presets.filter((preset) => preset.type === type), [presets, type]);
 
@@ -132,6 +140,21 @@ export default function PresetsPage() {
       setError(e.message || 'Nem sikerült törölni a presetet.');
     }
   };
+
+  if (isAdmin === null) return <LoadingScreen />;
+
+  if (!isAdmin) {
+    return (
+      <main className="min-h-screen bg-black text-gray-100 font-mono flex items-center justify-center p-6">
+        <section className="w-full max-w-lg rounded-2xl border border-gray-800 bg-zinc-950 p-8 text-center">
+          <div className="text-xs uppercase tracking-[0.25em] text-gray-500 mb-3">ADMIN ONLY</div>
+          <h1 className="text-2xl font-bold">Presetkezelés</h1>
+          <p className="mt-3 text-sm leading-6 text-gray-400">A közös helyszín-, kamera- és stíluskatalógust csak admin módosíthatja. A generálásban elérhető presetek ettől függetlenül használhatók.</p>
+          <a href="/" className="mt-6 inline-flex rounded-lg border border-gray-700 px-4 py-2 text-sm hover:border-gray-500">Vissza a karakterekhez</a>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-black text-gray-100 font-mono p-4 md:p-8">
@@ -225,7 +248,7 @@ export default function PresetsPage() {
 
         <section className="mt-6 rounded-xl border border-gray-800 bg-gray-950 p-5 text-sm text-gray-400">
           <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Tartós tárolás</div>
-          <p>A katalógus helye: <code className="text-gray-300">&lt;STORAGE_DIR&gt;/presets.json</code>. Az első szerveroldali olvasás automatikusan átmigrálja a korábbi beépített preseteket ebbe a fájlba. Ezután a futásidejű katalógus az igazodási pont a generáláshoz.</p>
+          <p>A tartós forrás a Supabase <code className="text-gray-300">public.preset_catalog</code> táblája. A szerver minden generálás előtt frissíti a helyi gyorsítótárat, így a módosítások több Vercel-példányon is egységesen érvényesülnek.</p>
         </section>
       </div>
     </main>
