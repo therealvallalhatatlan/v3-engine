@@ -597,8 +597,8 @@ export default function CharacterDetailPage() {
       try {
         return JSON.parse(text);
       } catch {
-        const normalized = text.replace(/\\s+/g, ' ').trim();
-        const looksLikeProxyError = /^(Request Entity Too Large|Payload Too Large|Too Many Requests|Internal Server Error|Bad Gateway|Service Unavailable)\\b/i.test(normalized);
+        const normalized = text.replace(/\s+/g, ' ').trim();
+        const looksLikeProxyError = /^(Request Entity Too Large|Payload Too Large|Too Many Requests|Internal Server Error|Bad Gateway|Service Unavailable)\b/i.test(normalized);
         const message = looksLikeProxyError
           ? 'A szerver elutasította a kérést. A kép vagy a kérés túl nagy lehet, vagy átmeneti szerverhiba történt.'
           : normalized.slice(0, 240);
