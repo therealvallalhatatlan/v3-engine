@@ -9,7 +9,7 @@ import { loadPresetCatalogFromSupabase } from '../../../lib/supabase/presets';
 import { createSupabaseServerClient, getCurrentUser } from '../../../lib/supabase/server';
 import { getAppCharacterById } from '../../../lib/supabase/characters';
 import { saveGeneratedImageToSupabase, shouldAddWatermark } from '../../../lib/supabase/generation';
-import { createSignedMediaUrl, deleteMedia, downloadAsDataUrl } from '../../../lib/supabase/media';
+import { createSignedMediaUrl, downloadAsDataUrl } from '../../../lib/supabase/media';
 import { v4 as uuidv4 } from 'uuid';
 
 function clampIntensity(value: unknown): number {
@@ -96,7 +96,6 @@ export async function POST(req: NextRequest) {
   let reservedCredits = 0;
   let consumedCredits = 0;
   let currentUserId = '';
-  let backgroundReferencePathForCleanup = '';
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
@@ -113,7 +112,6 @@ export async function POST(req: NextRequest) {
       if (!requestedBackgroundReferencePath.startsWith(expectedPrefix)) {
         return NextResponse.json({ error: 'Invalid background reference path' }, { status: 403 });
       }
-      backgroundReferencePathForCleanup = requestedBackgroundReferencePath;
       backgroundReferenceDataUrl = await downloadAsDataUrl(requestedBackgroundReferencePath);
     }
     const normalizedCharacterIds = backgroundOnly
@@ -417,13 +415,5 @@ export async function POST(req: NextRequest) {
     }
     console.error('Generation error:', error);
     return NextResponse.json({ error: error?.message || 'Generation failed' }, { status: 500 });
-  } finally {
-    if (backgroundReferencePathForCleanup) {
-      try {
-        await deleteMedia(backgroundReferencePathForCleanup);
-      } catch (cleanupError) {
-        console.warn('Background reference cleanup failed:', cleanupError);
-      }
-    }
   }
 }
