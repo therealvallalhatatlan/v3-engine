@@ -73,13 +73,59 @@ function newId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+const MAX_REFERENCE_BYTES = 650 * 1024;
+const MAX_REFERENCE_DIMENSION = 1600;
+
+async function optimizeReferenceImage(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error(`A(z) "${file.name}" fájl nem támogatott képformátum.`);
+  }
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error(`A(z) "${file.name}" képet nem sikerült beolvasni. Próbálj JPG, PNG vagy WebP fájlt.`);
+  }
+
+  try {
+    let scale = Math.min(1, MAX_REFERENCE_DIMENSION / Math.max(bitmap.width, bitmap.height));
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('A kép optimalizálása nem sikerült.');
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+      for (const quality of [0.82, 0.72, 0.62, 0.52]) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+        if (blob && blob.size <= MAX_REFERENCE_BYTES) {
+          return await readFileAsDataUrl(blob);
+        }
+      }
+
+      scale *= 0.78;
+    }
+
+    throw new Error(`A(z) "${file.name}" kép tömörítés után is túl nagy. Próbálj kisebb felbontású képet.`);
+  } finally {
+    bitmap.close();
+  }
 }
 
 export default function ImageEditChat({
@@ -165,7 +211,7 @@ export default function ImageEditChat({
         incoming.map(async (file) => ({
           id: newId(),
           name: file.name,
-          dataUrl: await readFileAsDataUrl(file),
+          dataUrl: await optimizeReferenceImage(file),
         })),
       );
       setPendingReferences((current) => [...current, ...loaded]);
