@@ -898,11 +898,8 @@ export default function CharacterDetailPage() {
       setError(e?.message || 'Generation failed');
     } finally {
       setLoading(false);
-      if (generationMode === 'character' && backgroundReferencePath) {
-        setBackgroundReferencePath('');
-        setBackgroundReferenceUrl('');
-        setBackgroundReferenceError('');
-      }
+      // Keep the uploaded background reference selected after generation.
+      // It should only be cleared when the user explicitly removes/replaces it.
     }
   };
 
