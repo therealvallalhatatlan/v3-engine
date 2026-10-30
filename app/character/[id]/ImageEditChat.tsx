@@ -26,6 +26,30 @@ type PendingReference = {
   dataUrl: string;
 };
 
+async function readApiResponse(response: Response): Promise<any> {
+  const contentType = response.headers.get('content-type') || '';
+  const raw = await response.text();
+
+  if (contentType.toLowerCase().includes('application/json')) {
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      throw new Error(`A szerver hibás JSON-választ adott (HTTP ${response.status}).`);
+    }
+  }
+
+  const preview = raw.trim().slice(0, 240);
+  if (!response.ok) {
+    const isPayloadLimit = response.status === 413 || /request entity too large|payload too large/i.test(preview);
+    if (isPayloadLimit) {
+      throw new Error('A referencia képek túl nagyok ehhez a feltöltési kéréshez. Kisebb képekkel próbáld újra.');
+    }
+    throw new Error(`A szerver nem JSON hibaválaszt adott (HTTP ${response.status}): ${preview || response.statusText}`);
+  }
+
+  throw new Error('A szerver váratlan, nem JSON választ adott.');
+}
+
 type VersionInfo = {
   id: string;
   url: string;
@@ -188,7 +212,7 @@ export default function ImageEditChat({
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
       if (!response.ok) throw new Error(data?.error || 'A képszerkesztés sikertelen.');
 
       const nextSessionId = String(data.sessionId || sessionId || '');
